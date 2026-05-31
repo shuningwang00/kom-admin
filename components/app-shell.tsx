@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 const MOBILE_MAX = 767;
 const HEADER_ROW =
@@ -28,6 +28,10 @@ type HealthResponse = {
   };
 };
 
+// Module-level cache — persists across re-mounts within a browser session.
+let _me: MeResponse | null = null;
+let _health: HealthResponse | null = null;
+
 type NavItem = {
   href: string;
   label: string;
@@ -52,7 +56,7 @@ const NAV_ITEMS: NavItem[] = [
 function MenuIcon() {
   return (
     <svg
-      className="h-6 w-6 text-zinc-700"
+      className="h-6 w-6 text-white"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -90,8 +94,8 @@ function NavLink({
       onClick={onNavigate}
       className={
         active
-          ? "block rounded-lg border-l-2 border-orange-500 bg-orange-50 px-3 py-2.5 text-sm font-medium text-orange-900"
-          : "block rounded-lg border-l-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+          ? "block rounded-lg border-l-2 border-orange-500 bg-zinc-800 px-3 py-2.5 text-sm font-medium text-orange-400"
+          : "block rounded-lg border-l-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white"
       }
     >
       {label}
@@ -110,40 +114,38 @@ export default function AppShell({
   children: React.ReactNode;
   title: string;
 }) {
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [dbHealth, setDbHealth] = useState<HealthResponse | null>(null);
+  const [me, setMe] = useState<MeResponse | null>(_me);
+  const [dbHealth, setDbHealth] = useState<HealthResponse | null>(_health);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  useEffect(() => {
+  // Run before paint to avoid sidebar flash on desktop.
+  useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     setSidebarOpen(mq.matches);
-
-    const onChange = (e: MediaQueryListEvent) => {
-      setSidebarOpen(e.matches);
-    };
+    const onChange = (e: MediaQueryListEvent) => setSidebarOpen(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
+    if (_me !== null) return;
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setMe(data as MeResponse | null))
-      .catch(() => setMe(null));
+      .then((data) => { _me = data as MeResponse | null; setMe(_me); })
+      .catch(() => { _me = null; setMe(null); });
+
+    if (_health !== null) return;
     fetch("/api/health")
       .then((r) => r.json())
-      .then((data) => setDbHealth(data as HealthResponse))
-      .catch(() =>
-        setDbHealth({
+      .then((data) => { _health = data as HealthResponse; setDbHealth(_health); })
+      .catch(() => {
+        const fallback: HealthResponse = {
           ok: false,
-          db: {
-            configured: false,
-            connected: false,
-            studentCount: 0,
-            error: "Could not reach database health check.",
-          },
-        }),
-      );
+          db: { configured: false, connected: false, studentCount: 0, error: "Could not reach database health check." },
+        };
+        _health = fallback;
+        setDbHealth(fallback);
+      });
   }, []);
 
   const role = (me?.user?.role ?? "owner") as "owner" | "staff" | "tutor";
@@ -180,7 +182,7 @@ export default function AppShell({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-zinc-200 bg-white transition-[transform,width] duration-200 ease-out max-md:w-52 max-md:shadow-xl ${
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-zinc-800 bg-zinc-900 transition-[transform,width] duration-200 ease-out max-md:w-52 max-md:shadow-xl ${
           sidebarOpen
             ? "max-md:translate-x-0 md:w-52 md:translate-x-0"
             : "max-md:-translate-x-full md:w-10 md:translate-x-0"
@@ -198,18 +200,18 @@ export default function AppShell({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/logo-icon-dark.png"
+                src="/logo-icon-light.png"
                 alt=""
                 className="h-6 w-6 shrink-0 object-contain"
               />
-              <span className="truncate text-lg font-semibold leading-none text-zinc-900">
+              <span className="truncate text-lg font-semibold leading-none text-white">
                 Staff Portal
               </span>
             </Link>
           ) : null}
           <button
             type="button"
-            className="hidden shrink-0 rounded-md p-1.5 hover:bg-zinc-100 md:block"
+            className="hidden shrink-0 rounded-md p-1.5 hover:bg-zinc-800 md:block"
             aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
             aria-expanded={sidebarOpen}
             onClick={toggleSidebar}
@@ -231,19 +233,19 @@ export default function AppShell({
               ))}
             </nav>
 
-            <div className="border-t border-zinc-200 px-4 py-4">
+            <div className="border-t border-zinc-800 px-4 py-4">
               {me?.user ? (
                 <div className="space-y-2 text-sm">
-                  <p className="font-medium text-zinc-900">
+                  <p className="font-medium text-white">
                     {me.user.displayName || me.user.email}
                   </p>
-                  <span className="inline-block rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                  <span className="inline-block rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
                     {badge}
                   </span>
                   <button
                     type="button"
                     onClick={signOutGoogle}
-                    className="block text-left text-xs font-medium text-orange-700 hover:underline"
+                    className="block text-left text-xs font-medium text-orange-400 hover:underline"
                   >
                     Sign out Google
                   </button>
@@ -251,7 +253,7 @@ export default function AppShell({
               ) : (
                 <Link
                   href="/api/auth/google?mode=signin"
-                  className="text-sm font-medium text-orange-700 hover:underline"
+                  className="text-sm font-medium text-orange-400 hover:underline"
                 >
                   Sign in with Google
                 </Link>
@@ -267,25 +269,25 @@ export default function AppShell({
         }`}
       >
         <header
-          className={`${HEADER_ROW} sticky top-0 z-20 gap-3 bg-white px-4 md:px-6`}
+          className={`${HEADER_ROW} sticky top-0 z-20 gap-3 bg-zinc-900 px-4 md:px-6`}
         >
           <button
             type="button"
-            className="shrink-0 rounded-md p-1.5 hover:bg-zinc-100 md:hidden"
+            className="shrink-0 rounded-md p-1.5 hover:bg-zinc-800 md:hidden"
             aria-label={sidebarOpen ? "Close menu" : "Open menu"}
             aria-expanded={sidebarOpen}
             onClick={toggleSidebar}
           >
             <MenuIcon />
           </button>
-          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold leading-none text-zinc-900 md:text-xl">
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold leading-none text-white md:text-xl">
             {title}
           </h1>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo-full-dark.png"
+            src="/logo-full-light.jpg"
             alt="KNOCKOUT/MATH"
-            className="h-7 w-auto shrink-0 object-contain"
+            className="h-7 w-auto shrink-0 object-contain mix-blend-screen"
           />
         </header>
 

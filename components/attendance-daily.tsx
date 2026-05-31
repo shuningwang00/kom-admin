@@ -7,6 +7,7 @@ import {
   readAttendanceDailyDate,
   writeAttendanceDailyDate,
 } from "@/lib/dates/attendance-selected-date";
+import { isReliefTutorNeeded } from "@/lib/tutors/constants";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +24,12 @@ type SessionRow = {
   attendanceMarked: boolean;
   attendanceMarkLabel: string;
 };
+
+function expectedLabelColor(label: string): string {
+  if (!label || label.startsWith("0 ")) return "text-red-600";
+  if (label.includes("M/U")) return "text-amber-500";
+  return "text-blue-600";
+}
 
 export default function AttendanceDaily() {
   const [date, setDate] = useState(() => readAttendanceDailyDate());
@@ -202,6 +209,7 @@ export default function AttendanceDaily() {
                     cls.tutor,
                     session.reliefTutor ?? "",
                   );
+                  const reliefNeeded = isReliefTutorNeeded(session.reliefTutor ?? "");
                   return (
                     <li key={session.id}>
                       <Link
@@ -213,13 +221,14 @@ export default function AttendanceDaily() {
                             cls={cls}
                             tutorPrimary={`${formatShortDate(session.scheduledDate)} · ${tutor.primary}`}
                             tutorSubtitle={tutor.subtitle}
+                            isReliefNeeded={reliefNeeded}
                           />
                         </div>
                         <div className="text-right text-sm">
                           <p className="text-zinc-500">
                             {session.timeLabel || cls.time}
                           </p>
-                          <p className="mt-0.5 font-medium text-orange-800">
+                          <p className={`mt-0.5 font-medium ${expectedLabelColor(expectedLabel)}`}>
                             {expectedLabel}
                           </p>
                           <p className="mt-0.5 text-xs font-medium text-amber-800">
@@ -251,6 +260,7 @@ export default function AttendanceDaily() {
               attendanceMarkLabel,
             }) => {
             const tutor = sessionTutorDisplay(cls.tutor, session.reliefTutor ?? "");
+            const reliefNeeded = isReliefTutorNeeded(session.reliefTutor ?? "");
             return (
             <li key={session.id}>
               <Link
@@ -262,13 +272,14 @@ export default function AttendanceDaily() {
                     cls={cls}
                     tutorPrimary={tutor.primary}
                     tutorSubtitle={tutor.subtitle}
+                    isReliefNeeded={reliefNeeded}
                   />
                 </div>
                 <div className="text-right text-sm">
                   <p className="text-zinc-500">
                     {session.timeLabel || cls.time}
                   </p>
-                  <p className="mt-0.5 font-medium text-orange-800">
+                  <p className={`mt-0.5 font-medium ${expectedLabelColor(expectedLabel)}`}>
                     {expectedLabel}
                   </p>
                   <p
