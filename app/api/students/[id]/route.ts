@@ -3,8 +3,10 @@ import {
   assertCanReadRoster,
 } from "@/lib/auth/access";
 import { jsonError, jsonOk } from "@/lib/api/json";
+import { assignStudentBillingGroup } from "@/lib/billing-groups/resolve";
 import { getDb } from "@/lib/db/index";
-import { students } from "@/lib/db/schema";
+import { billingGroups, students } from "@/lib/db/schema";
+import { contactFieldsFromBody } from "@/lib/students/contact-fields";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +18,22 @@ export async function GET(_request: Request, { params }: Params) {
     await assertCanReadRoster();
     const { id } = await params;
     const db = getDb();
-    const [row] = await db.select().from(students).where(eq(students.id, id));
+    const [row] = await db
+      .select({
+        student: students,
+        billingGroupLabel: billingGroups.label,
+      })
+      .from(students)
+      .leftJoin(billingGroups, eq(students.billingGroupId, billingGroups.id))
+      .where(eq(students.id, id))
+      .limit(1);
     if (!row) return jsonError("Student not found.", 404);
-    return jsonOk({ student: row });
+    return jsonOk({
+      student: {
+        ...row.student,
+        billingGroupLabel: row.billingGroupLabel ?? null,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     return jsonError(message, message === "Unauthorized" ? 401 : 500);
@@ -36,7 +51,7 @@ export async function PATCH(request: Request, { params }: Params) {
       updatedAt: new Date(),
     };
     if (body.name != null) patch.name = String(body.name).trim();
-    if (body.contact != null) patch.contact = String(body.contact).trim();
+    Object.assign(patch, contactFieldsFromBody(body));
     if (body.school != null) patch.school = String(body.school).trim();
     if (body.parentName != null)
       patch.parentName = String(body.parentName).trim();
@@ -56,7 +71,47 @@ export async function PATCH(request: Request, { params }: Params) {
       .where(eq(students.id, id))
       .returning();
     if (!updated) return jsonError("Student not found.", 404);
-    return jsonOk({ student: updated });
+
+    const siblingIds = Array.isArray(body.siblingStudentIds)
+      ? (body.siblingStudentIds as string[])
+      : undefined;
+    if (
+      body.billingGroupId !== undefined ||
+      (siblingIds && siblingIds.length > 0) ||
+      body.clearBillingGroup === true
+    ) {
+      await assignStudentBillingGroup(db, id, {
+        billingGroupId: body.clearBillingGroup
+          ? null
+          : body.billingGroupId != null
+            ? String(body.billingGroupId).trim() || null
+            : undefined,
+        siblingStudentIds: siblingIds,
+        label:
+          body.billingGroupLabel != null
+            ? String(body.billingGroupLabel)
+            : undefined,
+      });
+    }
+
+    const [refreshed] = await db
+      .select({
+        student: students,
+        billingGroupLabel: billingGroups.label,
+      })
+      .from(students)
+      .leftJoin(billingGroups, eq(students.billingGroupId, billingGroups.id))
+      .where(eq(students.id, id))
+      .limit(1);
+
+    return jsonOk({
+      student: refreshed
+        ? {
+            ...refreshed.student,
+            billingGroupLabel: refreshed.billingGroupLabel ?? null,
+          }
+        : updated,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     const status =

@@ -1,6 +1,7 @@
 import {
   ensureAttendanceRows,
   loadSessionDetail,
+  toSessionDetailResponse,
 } from "@/lib/attendance/session-detail";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
@@ -19,7 +20,7 @@ export async function GET(_request: Request, { params }: Params) {
     await ensureAttendanceRows(id, detail.class.id);
     const refreshed = await loadSessionDetail(id);
     if (!refreshed) return jsonError("Session not found.", 404);
-    return jsonOk({ ...refreshed, role: user.role });
+    return jsonOk(toSessionDetailResponse(refreshed, user.role));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     const status =

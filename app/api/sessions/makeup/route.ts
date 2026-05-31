@@ -11,11 +11,15 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       classId?: string;
+      sourceSessionId?: string;
       studentId?: string;
       makeupDate?: string;
       note?: string;
+      makeupClassId?: string;
+      timeLabel?: string;
+      reliefTutor?: string;
     };
-    if (!body.classId || !body.studentId || !body.makeupDate) {
+    if (!body.classId || !body.studentId || !body.makeupDate?.trim()) {
       return jsonError("classId, studentId, and makeupDate are required.");
     }
 
@@ -30,10 +34,14 @@ export async function POST(request: Request) {
     const actor = await assertCanScheduleMakeup(cls.tutor);
     const result = await scheduleMakeup({
       actor,
-      classId: body.classId,
+      sourceClassId: body.classId,
+      sourceSessionId: body.sourceSessionId?.trim() || undefined,
       studentId: body.studentId,
       makeupDate: body.makeupDate.trim(),
       note: body.note,
+      makeupClassId: body.makeupClassId?.trim() || undefined,
+      timeLabel: body.timeLabel?.trim() || undefined,
+      reliefTutor: body.reliefTutor?.trim() || undefined,
     });
     return jsonOk(result);
   } catch (err) {

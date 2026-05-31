@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db/index";
 import { classSessions, classes } from "@/lib/db/schema";
+import { canonicalTimeLabel } from "@/lib/scheduling/time-slots";
 import { datesForWeekdayInMonth, parseYearMonth } from "@/lib/scheduling/weekday-dates";
 import { eq } from "drizzle-orm";
 
@@ -9,6 +10,12 @@ export type GenerateSessionsResult = {
   skipped: number;
 };
 
+/**
+ * Creates one session row per class per calendar date (weekday schedule).
+ * Which students appear on each session is decided at attendance time from
+ * registration start, enrollment startedAt, withdrawal, and pause dates —
+ * not when sessions are generated (paused students are excluded for those dates).
+ */
 export async function generateSessionsForMonth(
   yearMonth: string,
 ): Promise<GenerateSessionsResult> {
@@ -36,7 +43,7 @@ export async function generateSessionsForMonth(
         .values({
           classId: cls.id,
           scheduledDate,
-          timeLabel: cls.time,
+          timeLabel: canonicalTimeLabel(cls.time),
         })
         .onConflictDoNothing({
           target: [classSessions.classId, classSessions.scheduledDate],

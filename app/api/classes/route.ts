@@ -3,6 +3,7 @@ import {
   assertCanReadRoster,
 } from "@/lib/auth/access";
 import { jsonError, jsonOk } from "@/lib/api/json";
+import { syncClassesFromSheetIfConfigured } from "@/lib/classes-sheet/sync";
 import { getDb } from "@/lib/db/index";
 import { classes, weekdayEnum } from "@/lib/db/schema";
 import { asc, eq } from "drizzle-orm";
@@ -16,12 +17,16 @@ export async function GET(request: Request) {
     await assertCanReadRoster();
     const activeOnly = new URL(request.url).searchParams.get("all") !== "1";
     const db = getDb();
+    const sync = await syncClassesFromSheetIfConfigured(
+      db,
+      new URL(request.url).searchParams.get("refresh") === "1",
+    );
     const rows = await db
       .select()
       .from(classes)
       .where(activeOnly ? eq(classes.isActive, true) : undefined)
       .orderBy(asc(classes.weekday), asc(classes.time), asc(classes.label));
-    return jsonOk({ classes: rows, weekdays: WEEKDAYS });
+    return jsonOk({ classes: rows, weekdays: WEEKDAYS, sheetSync: sync });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     return jsonError(message, message === "Unauthorized" ? 401 : 500);

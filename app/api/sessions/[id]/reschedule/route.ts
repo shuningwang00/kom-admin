@@ -4,6 +4,11 @@ import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
 import { getDb } from "@/lib/db/index";
 import { classSessions } from "@/lib/db/schema";
+import {
+  isWithinCentreHours,
+  normalizeTimeLabel,
+  resolveRescheduleTimeLabel,
+} from "@/lib/scheduling/time-slots";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -33,11 +38,23 @@ export async function POST(request: Request, { params }: Params) {
       timeLabel: detail.session.timeLabel,
     };
 
+    const rawTime = body.timeLabel?.trim() || detail.session.timeLabel;
+    const timeLabel = resolveRescheduleTimeLabel(
+      rawTime,
+      detail.class.time,
+    );
+    if (!normalizeTimeLabel(timeLabel)) {
+      return jsonError("Pick a valid time slot (1h 45min).");
+    }
+    if (!isWithinCentreHours(timeLabel)) {
+      return jsonError("Time must be within centre hours (9am–8pm).");
+    }
+
     const [updated] = await db
       .update(classSessions)
       .set({
         scheduledDate: newDate,
-        timeLabel: body.timeLabel?.trim() || detail.session.timeLabel,
+        timeLabel,
         rescheduleNote: body.note?.trim() || detail.session.rescheduleNote,
         updatedAt: new Date(),
       })

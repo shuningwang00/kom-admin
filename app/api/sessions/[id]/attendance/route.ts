@@ -1,6 +1,10 @@
 import type { AttendanceStatus } from "@/lib/attendance/status";
 import { updateAttendanceRecords } from "@/lib/attendance/update-records";
-import { loadSessionDetail } from "@/lib/attendance/session-detail";
+import {
+  loadSessionDetail,
+  toSessionDetailResponse,
+} from "@/lib/attendance/session-detail";
+import { updateTrialLeadAttendance } from "@/lib/attendance/trial-lead-attendance";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
 
@@ -21,21 +25,37 @@ export async function PATCH(request: Request, { params }: Params) {
         status: AttendanceStatus;
         makeupNote?: string;
       }>;
+      trialUpdates?: Array<{
+        trialLeadId: string;
+        status: AttendanceStatus;
+      }>;
     };
 
-    if (!body.updates?.length) {
-      return jsonError("updates array is required.");
+    if (!body.updates?.length && !body.trialUpdates?.length) {
+      return jsonError("updates or trialUpdates is required.");
     }
 
-    await updateAttendanceRecords({
-      actor: user,
-      sessionId: id,
-      updates: body.updates,
-    });
+    if (body.updates?.length) {
+      await updateAttendanceRecords({
+        actor: user,
+        sessionId: id,
+        updates: body.updates,
+      });
+    }
+
+    if (body.trialUpdates?.length) {
+      await updateTrialLeadAttendance({
+        actor: user,
+        sessionId: id,
+        classId: detail.class.id,
+        sessionDate: detail.session.scheduledDate,
+        updates: body.trialUpdates,
+      });
+    }
 
     const refreshed = await loadSessionDetail(id);
     if (!refreshed) return jsonError("Session not found.", 404);
-    return jsonOk(refreshed);
+    return jsonOk(toSessionDetailResponse(refreshed, user.role));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     const status =

@@ -12,6 +12,13 @@ import {
 
 export const allowlistRoleEnum = pgEnum("allowlist_role", ["staff", "tutor"]);
 
+export const contactTypeEnum = pgEnum("contact_type", [
+  "mom",
+  "dad",
+  "parent",
+  "student",
+]);
+
 export const weekdayEnum = pgEnum("weekday", [
   "monday",
   "tuesday",
@@ -31,6 +38,7 @@ export const attendanceStatusEnum = pgEnum("attendance_status", [
   "free_trial",
   "makeup_scheduled",
   "makeup_done",
+  "makeup_absent",
 ]);
 
 export const classSessionStatusEnum = pgEnum("class_session_status", [
@@ -38,12 +46,35 @@ export const classSessionStatusEnum = pgEnum("class_session_status", [
   "cancelled",
 ]);
 
+export const trialLeadStatusEnum = pgEnum("trial_lead_status", [
+  "active",
+  "converted",
+]);
+
+export const billingGroups = pgTable("billing_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const students = pgTable(
   "students",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    billingGroupId: uuid("billing_group_id").references(() => billingGroups.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
-    contact: text("contact").notNull().default(""),
+    primaryContact: text("primary_contact").notNull().default(""),
+    primaryContactType: contactTypeEnum("primary_contact_type"),
+    secondaryContact: text("secondary_contact").notNull().default(""),
+    secondaryContactType: contactTypeEnum("secondary_contact_type"),
     school: text("school").notNull().default(""),
     parentName: text("parent_name").notNull().default(""),
     startDate: date("start_date"),
@@ -56,7 +87,10 @@ export const students = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("students_name_idx").on(t.name)],
+  (t) => [
+    index("students_name_idx").on(t.name),
+    index("students_billing_group_idx").on(t.billingGroupId),
+  ],
 );
 
 export const classes = pgTable(
@@ -82,6 +116,46 @@ export const classes = pgTable(
   ],
 );
 
+/** Prospective free-trial students — not in main roster until converted. */
+export const trialLeads = pgTable(
+  "trial_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    primaryContact: text("primary_contact").notNull().default(""),
+    primaryContactType: contactTypeEnum("primary_contact_type"),
+    secondaryContact: text("secondary_contact").notNull().default(""),
+    secondaryContactType: contactTypeEnum("secondary_contact_type"),
+    school: text("school").notNull().default(""),
+    parentName: text("parent_name").notNull().default(""),
+    classId: uuid("class_id").references(() => classes.id, {
+      onDelete: "set null",
+    }),
+    trialDate: date("trial_date"),
+    /** Set when staff saves attendance on the trial lesson (before convert). */
+    trialAttendanceStatus: attendanceStatusEnum("trial_attendance_status"),
+    trialAttendanceUpdatedBy: text("trial_attendance_updated_by")
+      .notNull()
+      .default(""),
+    notes: text("notes").notNull().default(""),
+    status: trialLeadStatusEnum("status").notNull().default("active"),
+    convertedStudentId: uuid("converted_student_id").references(
+      () => students.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("trial_leads_status_idx").on(t.status),
+    index("trial_leads_name_idx").on(t.name),
+  ],
+);
+
 export const enrollments = pgTable(
   "enrollments",
   {
@@ -93,7 +167,11 @@ export const enrollments = pgTable(
       .notNull()
       .references(() => classes.id, { onDelete: "cascade" }),
     startedAt: date("started_at"),
+    /** Free trial lesson date (may be before registration / class start). */
+    trialAttendedAt: date("trial_attended_at"),
     endedAt: date("ended_at"),
+    pauseStartedAt: date("pause_started_at"),
+    pauseEndedAt: date("pause_ended_at"),
     freeTrial: boolean("free_trial").notNull().default(false),
     registrationFeeDue: boolean("registration_fee_due")
       .notNull()
@@ -144,6 +222,8 @@ export const classSessions = pgTable(
     timeLabel: text("time_label").notNull().default(""),
     status: classSessionStatusEnum("status").notNull().default("scheduled"),
     rescheduleNote: text("reschedule_note").notNull().default(""),
+    /** When set, this tutor covers the session instead of class.tutor */
+    reliefTutor: text("relief_tutor").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -202,6 +282,27 @@ export const auditLogs = pgTable(
       .defaultNow(),
   },
   (t) => [index("audit_logs_created_idx").on(t.createdAt)],
+);
+
+export const tutorOoo = pgTable(
+  "tutor_ooo",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Matches class.tutor (e.g. "JUNYANG"). Case-insensitive comparison at query time. */
+    tutorMatch: text("tutor_match").notNull(),
+    startDate: date("start_date").notNull(),
+    /** Inclusive last OOO day. */
+    endDate: date("end_date").notNull(),
+    reason: text("reason").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tutor_ooo_tutor_idx").on(t.tutorMatch),
+    index("tutor_ooo_dates_idx").on(t.startDate, t.endDate),
+  ],
 );
 
 export const importRuns = pgTable("import_runs", {

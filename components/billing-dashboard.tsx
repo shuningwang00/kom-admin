@@ -7,12 +7,19 @@ import {
 } from "@/lib/invoice-number";
 import { columnLetter } from "@/lib/sheets/row-utils";
 import type { BillingPreview, StudentBillingRow } from "@/lib/types";
+import type { BillingGroupNameEntry } from "@/lib/billing-groups/name-map";
 import {
+  familyGroupTotal,
+  groupBillingRowsByFamily,
+} from "@/lib/billing-groups/group-rows";
+import {
+  buildFamilyInvoiceWhatsAppMessage,
   buildInvoiceWhatsAppMessage,
   buildReceiptWhatsAppMessage,
   parsePhoneFromContact,
   whatsAppDeepLink,
 } from "@/lib/whatsapp";
+import { slugifyName } from "@/lib/invoice-number";
 import { parseSpreadsheetId } from "@/lib/sheets/spreadsheet-id";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -80,7 +87,7 @@ function LoginGate({ onLoggedIn }: { onLoggedIn: () => void }) {
   return (
     <form
       onSubmit={submit}
-      className="mx-auto mt-24 max-w-sm rounded-xl border border-orange-100 bg-white p-6 shadow-sm"
+      className="mx-auto max-w-sm rounded-xl border border-orange-100 bg-white p-6 shadow-sm"
     >
       <h2 className="text-lg font-semibold text-zinc-900">Sign in</h2>
       <p className="mt-1 text-sm text-zinc-500">
@@ -166,6 +173,9 @@ export default function BillingDashboard() {
   const [filterStudent, setFilterStudent] = useState("");
   const [filterDay, setFilterDay] = useState("");
   const [filterLevel, setFilterLevel] = useState("");
+  const [billingGroupEntries, setBillingGroupEntries] = useState<
+    BillingGroupNameEntry[]
+  >([]);
 
   const dayOptions = useMemo(() => {
     if (!preview) return [];
@@ -194,11 +204,46 @@ export default function BillingDashboard() {
     });
   }, [preview, filterStudent, filterDay, filterLevel]);
 
+  const nameMap = useMemo(() => {
+    const m = new Map<string, BillingGroupNameEntry>();
+    for (const g of billingGroupEntries) {
+      for (const name of g.memberNames) {
+        m.set(name.trim().toLowerCase(), g);
+      }
+    }
+    return m;
+  }, [billingGroupEntries]);
+
+  const rowGroups = useMemo(() => {
+    if (!preview || nameMap.size === 0) {
+      return filteredRows.map((row) => ({
+        kind: "single" as const,
+        row,
+      }));
+    }
+    return groupBillingRowsByFamily(filteredRows, nameMap);
+  }, [filteredRows, nameMap, preview]);
+
   useEffect(() => {
     setFilterStudent("");
     setFilterDay("");
     setFilterLevel("");
   }, [preview?.spreadsheetId]);
+
+  useEffect(() => {
+    if (!preview) {
+      setBillingGroupEntries([]);
+      return;
+    }
+    fetch("/api/billing-groups/name-map")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        setBillingGroupEntries(
+          (data?.groups as BillingGroupNameEntry[] | undefined) ?? [],
+        );
+      })
+      .catch(() => setBillingGroupEntries([]));
+  }, [preview?.spreadsheetId, preview?.loadedAt]);
 
   const checkAuth = useCallback(async () => {
     const [adminRes, googleRes] = await Promise.all([
@@ -295,9 +340,7 @@ export default function BillingDashboard() {
 
   if (authRequired === null) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-        Loading…
-      </div>
+      <p className="py-12 text-center text-sm text-zinc-500">Loading…</p>
     );
   }
 
@@ -310,41 +353,27 @@ export default function BillingDashboard() {
     filterStudent.trim() !== "" || filterDay !== "" || filterLevel !== "";
 
   return (
-    <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
-      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
-            Knockout Math Billing
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Load sheet → INV (invoice) / Paid (receipt) → WhatsApp (you send).
-          </p>
-          <nav className="mt-3 flex flex-wrap gap-2 text-sm">
-            <Link href="/students" className="text-orange-700 hover:underline">
-              Students
-            </Link>
-            <Link href="/classes" className="text-orange-700 hover:underline">
-              Classes
-            </Link>
-            <Link href="/enrollments" className="text-orange-700 hover:underline">
-              Enrollments
-            </Link>
-          </nav>
-          {process.env.NODE_ENV === "development" ? (
-            <a
-              href="/dev/pdf-preview"
-              className="mt-2 inline-block text-sm text-orange-600 hover:underline"
-            >
-              Dev: live PDF preview
-            </a>
-          ) : null}
-        </div>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <p className="text-sm text-zinc-600">
+          Load sheet → INV (invoice) / Paid (receipt) → WhatsApp (you send).
+        </p>
         <img
           src="/logo-full-dark.png"
           alt="Knockout Math"
-          className="h-8 w-auto self-start sm:self-auto"
+          className="h-8 w-auto shrink-0"
         />
-      </header>
+      </div>
+      {process.env.NODE_ENV === "development" ? (
+        <p className="text-sm">
+          <Link
+            href="/dev/pdf-preview"
+            className="text-orange-600 hover:underline"
+          >
+            Dev: live PDF preview
+          </Link>
+        </p>
+      ) : null}
 
       {googleStatus && !googleStatus.connected ? (
         <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -517,41 +546,148 @@ export default function BillingDashboard() {
                     </td>
                   </tr>
                 ) : null}
-                {filteredRows.map((row) => {
-                  const inv = invoiceNumberFor(row);
-                  const phone = parsePhoneFromContact(row.contact);
-                  const payRef = buildPaymentReference(
-                    row.studentName,
-                    preview.yearMonth,
-                  );
-                  const waText = buildInvoiceWhatsAppMessage({
-                    studentName: row.studentName,
-                    monthLabel: preview.monthLabel,
-                    sessionCount: row.sessionCount,
-                    amount: row.computedAmount,
-                    paymentReference: payRef,
-                    invoiceNumber: inv,
-                  });
-                  const waUrl = phone
-                    ? whatsAppDeepLink(phone, waText)
-                    : null;
-                  const expanded = expandedId === row.id;
+                {rowGroups.map((item) => {
+                  if (item.kind === "family") {
+                    const total = familyGroupTotal(item.rows);
+                    const inv = invoiceNumberFor(item.rows[0]!);
+                    const phoneRow =
+                      item.rows.find((r) => parsePhoneFromContact(r.contact)) ??
+                      item.rows[0]!;
+                    const phone = parsePhoneFromContact(phoneRow.contact);
+                    const payRef = `KOM-${slugifyName(item.group.label).toUpperCase()}-${preview.yearMonth}`;
+                    const waUrl = phone
+                      ? whatsAppDeepLink(
+                          phone,
+                          buildFamilyInvoiceWhatsAppMessage({
+                            familyLabel: item.group.label,
+                            monthLabel: preview.monthLabel,
+                            lines: item.rows.map((r) => ({
+                              studentName: r.studentName,
+                              sessionCount: r.sessionCount,
+                              amount: r.computedAmount,
+                            })),
+                            totalAmount: total,
+                            paymentReference: payRef,
+                            invoiceNumber: inv,
+                          }),
+                        )
+                      : null;
 
-                  return (
-                    <Fragment key={row.id}>
-                      <tr
-                        className="border-b border-zinc-50 hover:bg-orange-50/30"
-                      >
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            className="font-medium text-zinc-900 hover:underline"
-                            onClick={() =>
-                              setExpandedId(expanded ? null : row.id)
-                            }
-                          >
-                            {row.studentName}
-                          </button>
+                    return (
+                      <Fragment key={`family-${item.group.groupId}`}>
+                        <tr className="border-b border-violet-200 bg-violet-50">
+                          <td colSpan={9} className="px-3 py-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-sm font-semibold text-violet-900">
+                                {item.group.label} — siblings (one bill)
+                              </span>
+                              <span className="text-sm font-medium text-violet-900">
+                                Family total: S${total.toFixed(2)}
+                              </span>
+                              {waUrl ? (
+                                <a
+                                  href={waUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
+                                >
+                                  WhatsApp family
+                                </a>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                        {item.rows.map((row) =>
+                          renderBillingTableRow(row, preview, {
+                            expandedId,
+                            setExpandedId,
+                            busyId,
+                            invoiceNumberFor,
+                            markInvOnSheet,
+                            downloadPdf,
+                            setBusyId,
+                            familyLabel: item.group.label,
+                          }),
+                        )}
+                      </Fragment>
+                    );
+                  }
+
+                  const row = item.row;
+                  return renderBillingTableRow(row, preview, {
+                    expandedId,
+                    setExpandedId,
+                    busyId,
+                    invoiceNumberFor,
+                    markInvOnSheet,
+                    downloadPdf,
+                    setBusyId,
+                  });
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function renderBillingTableRow(
+  row: StudentBillingRow,
+  preview: BillingPreview,
+  ctx: {
+    expandedId: string | null;
+    setExpandedId: (id: string | null) => void;
+    busyId: string | null;
+    invoiceNumberFor: (row: StudentBillingRow) => string;
+    markInvOnSheet: (row: StudentBillingRow) => void;
+    downloadPdf: (
+      preview: BillingPreview,
+      row: StudentBillingRow,
+      type: "invoice" | "receipt",
+      invoiceNumber: string,
+    ) => Promise<void>;
+    setBusyId: (id: string | null) => void;
+    familyLabel?: string;
+  },
+) {
+  const inv = ctx.invoiceNumberFor(row);
+  const phone = parsePhoneFromContact(row.contact);
+  const payRef = buildPaymentReference(row.studentName, preview.yearMonth);
+  const waText = buildInvoiceWhatsAppMessage({
+    studentName: row.studentName,
+    monthLabel: preview.monthLabel,
+    sessionCount: row.sessionCount,
+    amount: row.computedAmount,
+    paymentReference: payRef,
+    invoiceNumber: inv,
+  });
+  const waUrl = phone ? whatsAppDeepLink(phone, waText) : null;
+  const expanded = ctx.expandedId === row.id;
+
+  return (
+    <Fragment key={row.id}>
+      <tr
+        className={
+          ctx.familyLabel
+            ? "border-b border-zinc-50 bg-violet-50/20 hover:bg-violet-50/40"
+            : "border-b border-zinc-50 hover:bg-orange-50/30"
+        }
+      >
+        <td className="px-3 py-2">
+          <button
+            type="button"
+            className="font-medium text-zinc-900 hover:underline"
+            onClick={() =>
+              ctx.setExpandedId(expanded ? null : row.id)
+            }
+          >
+            {row.studentName}
+          </button>
+          {ctx.familyLabel ? (
+            <p className="text-xs text-violet-700">{ctx.familyLabel}</p>
+          ) : null}
                           {row.warnings.length > 0 ? (
                             <p className="text-xs text-amber-600">
                               {row.warnings[0]}
@@ -582,149 +718,123 @@ export default function BillingDashboard() {
                           ) : null}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusBadge
-                            status={row.paymentStatus}
-                            busy={busyId === row.id}
-                            onPaidClick={
-                              row.paymentStatus.toLowerCase().includes("paid")
-                                ? async () => {
-                                    setBusyId(row.id);
-                                    try {
-                                      await downloadPdf(
-                                        preview,
-                                        row,
-                                        "receipt",
-                                        inv,
-                                      );
-                                    } catch (e) {
-                                      alert(
-                                        e instanceof Error
-                                          ? e.message
-                                          : "PDF failed",
-                                      );
-                                    } finally {
-                                      setBusyId(null);
-                                    }
-                                  }
-                                : undefined
-                            }
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              disabled={busyId === row.id}
-                              title="Download invoice PDF"
-                              className="rounded border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-800 hover:bg-orange-100 disabled:opacity-50"
-                              onClick={async () => {
-                                setBusyId(row.id);
-                                try {
-                                  await downloadPdf(
-                                    preview,
-                                    row,
-                                    "invoice",
-                                    inv,
-                                  );
-                                } catch (e) {
-                                  alert(
-                                    e instanceof Error
-                                      ? e.message
-                                      : "PDF failed",
-                                  );
-                                } finally {
-                                  setBusyId(null);
-                                }
-                              }}
-                            >
-                              INV
-                            </button>
-                            {waUrl ? (
-                              <a
-                                href={waUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
-                              >
-                                WhatsApp
-                              </a>
-                            ) : (
-                              <span
-                                className="text-xs text-zinc-400"
-                                title="No phone in Contact column"
-                              >
-                                No phone
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              disabled={busyId === row.id}
-                              className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
-                              onClick={() => markInvOnSheet(row)}
-                            >
-                              Mark INV
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {expanded ? (
-                        <tr key={`${row.id}-detail`} className="bg-zinc-50">
-                          <td colSpan={9} className="px-4 py-3 text-xs text-zinc-600">
-                            <p>
-                              <strong>Invoice:</strong> {inv} ·{" "}
-                              <strong>PayNow ref:</strong> {payRef}
-                            </p>
-                            <p className="mt-1">
-                              <strong>Contact:</strong> {row.contact || "—"} ·{" "}
-                              <strong>INV cell:</strong> {row.invMarker || "—"} ·{" "}
-                              <strong>Payment (col{" "}
-                              {row.paymentColumnIndex != null
-                                ? columnLetter(row.paymentColumnIndex)
-                                : "?"}
-                              ):</strong> {row.paymentStatus || "—"}
-                            </p>
-                            <ul className="mt-2 list-inside list-disc">
-                              {row.sessions.map((s, i) => (
-                                <li key={i}>
-                                  {s.dateLabel} · {s.sheetName} · {s.classLabel}
-                                  {s.makeupNote ? ` (${s.makeupNote})` : ""}
-                                </li>
-                              ))}
-                              {row.sessions.length === 0 ? (
-                                <li>No billable sessions</li>
-                              ) : null}
-                            </ul>
-                            {phone &&
-                            row.paymentStatus.toLowerCase().includes("paid") ? (
-                              <a
-                                className="mt-2 inline-block text-green-700 underline"
-                                href={whatsAppDeepLink(
-                                  phone,
-                                  buildReceiptWhatsAppMessage({
-                                    studentName: row.studentName,
-                                    monthLabel: preview.monthLabel,
-                                    amount: row.computedAmount,
-                                    receiptNo:
-                                      row.receiptNo || inv,
-                                  }),
-                                )}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                Send receipt via WhatsApp
-                              </a>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+          <StatusBadge
+            status={row.paymentStatus}
+            busy={ctx.busyId === row.id}
+            onPaidClick={
+              row.paymentStatus.toLowerCase().includes("paid")
+                ? async () => {
+                    ctx.setBusyId(row.id);
+                    try {
+                      await ctx.downloadPdf(preview, row, "receipt", inv);
+                    } catch (e) {
+                      alert(
+                        e instanceof Error ? e.message : "PDF failed",
+                      );
+                    } finally {
+                      ctx.setBusyId(null);
+                    }
+                  }
+                : undefined
+            }
+          />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              disabled={ctx.busyId === row.id}
+              title="Download invoice PDF"
+              className="rounded border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-800 hover:bg-orange-100 disabled:opacity-50"
+              onClick={async () => {
+                ctx.setBusyId(row.id);
+                try {
+                  await ctx.downloadPdf(preview, row, "invoice", inv);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : "PDF failed");
+                } finally {
+                  ctx.setBusyId(null);
+                }
+              }}
+            >
+              INV
+            </button>
+            {waUrl ? (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
+              >
+                WhatsApp
+              </a>
+            ) : (
+              <span
+                className="text-xs text-zinc-400"
+                title="No phone in Contact column"
+              >
+                No phone
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={ctx.busyId === row.id}
+              className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+              onClick={() => ctx.markInvOnSheet(row)}
+            >
+              Mark INV
+            </button>
           </div>
-        </section>
+        </td>
+      </tr>
+      {expanded ? (
+        <tr key={`${row.id}-detail`} className="bg-zinc-50">
+          <td colSpan={9} className="px-4 py-3 text-xs text-zinc-600">
+            <p>
+              <strong>Invoice:</strong> {inv} ·{" "}
+              <strong>PayNow ref:</strong> {payRef}
+            </p>
+            <p className="mt-1">
+              <strong>Contact:</strong> {row.contact || "—"} ·{" "}
+              <strong>INV cell:</strong> {row.invMarker || "—"} ·{" "}
+              <strong>Payment (col{" "}
+              {row.paymentColumnIndex != null
+                ? columnLetter(row.paymentColumnIndex)
+                : "?"}
+              ):</strong> {row.paymentStatus || "—"}
+            </p>
+            <ul className="mt-2 list-inside list-disc">
+              {row.sessions.map((s, i) => (
+                <li key={i}>
+                  {s.dateLabel} · {s.sheetName} · {s.classLabel}
+                  {s.makeupNote ? ` (${s.makeupNote})` : ""}
+                </li>
+              ))}
+              {row.sessions.length === 0 ? (
+                <li>No billable sessions</li>
+              ) : null}
+            </ul>
+            {phone && row.paymentStatus.toLowerCase().includes("paid") ? (
+              <a
+                className="mt-2 inline-block text-green-700 underline"
+                href={whatsAppDeepLink(
+                  phone,
+                  buildReceiptWhatsAppMessage({
+                    studentName: row.studentName,
+                    monthLabel: preview.monthLabel,
+                    amount: row.computedAmount,
+                    receiptNo: row.receiptNo || inv,
+                  }),
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Send receipt via WhatsApp
+              </a>
+            ) : null}
+          </td>
+        </tr>
       ) : null}
-    </div>
+    </Fragment>
   );
 }

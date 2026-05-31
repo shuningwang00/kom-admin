@@ -14,6 +14,16 @@ type MeResponse = {
   isOwner: boolean;
 };
 
+type HealthResponse = {
+  ok: boolean;
+  db: {
+    configured: boolean;
+    connected: boolean;
+    studentCount: number;
+    error: string | null;
+  };
+};
+
 function NavLink({ href, label }: { href: string; label: string }) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -39,12 +49,27 @@ export default function AppShell({
   title: string;
 }) {
   const [me, setMe] = useState<MeResponse | null>(null);
+  const [dbHealth, setDbHealth] = useState<HealthResponse | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setMe(data as MeResponse | null))
       .catch(() => setMe(null));
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((data) => setDbHealth(data as HealthResponse))
+      .catch(() =>
+        setDbHealth({
+          ok: false,
+          db: {
+            configured: false,
+            connected: false,
+            studentCount: 0,
+            error: "Could not reach database health check.",
+          },
+        }),
+      );
   }, []);
 
   const role = me?.user?.role ?? "owner";
@@ -77,6 +102,8 @@ export default function AppShell({
             ) : isStaff ? (
               <>
                 <NavLink href="/attendance" label="Attendance" />
+                <NavLink href="/makeup" label="Makeup" />
+                <NavLink href="/trials" label="Trials" />
                 <NavLink href="/students" label="Students" />
                 <NavLink href="/enrollments" label="Enrollments" />
                 <NavLink href="/billing" label="Billing" />
@@ -84,6 +111,8 @@ export default function AppShell({
             ) : (
               <>
                 <NavLink href="/attendance" label="Attendance" />
+                <NavLink href="/makeup" label="Makeup" />
+                <NavLink href="/trials" label="Trials" />
                 <NavLink href="/students" label="Students" />
                 <NavLink href="/classes" label="Classes" />
                 <NavLink href="/enrollments" label="Enrollments" />
@@ -123,6 +152,29 @@ export default function AppShell({
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8">
+        {dbHealth && !dbHealth.ok && (
+          <div
+            className="mb-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
+            role="alert"
+          >
+            <p className="font-semibold">Data is not being saved</p>
+            <p className="mt-1">
+              {dbHealth.db.error ??
+                "Database is not connected. Students, attendance, and enrollments will not persist."}
+            </p>
+            {dbHealth.db.connected && (
+              <p className="mt-1 text-red-800">
+                Connected, but health check failed — try npm run db:push.
+              </p>
+            )}
+          </div>
+        )}
+        {dbHealth?.ok && (
+          <p className="mb-4 text-xs text-zinc-500">
+            Database connected · {dbHealth.db.studentCount} student
+            {dbHealth.db.studentCount === 1 ? "" : "s"} saved
+          </p>
+        )}
         <h1 className="text-2xl font-semibold text-zinc-900">{title}</h1>
         <div className="mt-6">{children}</div>
       </main>

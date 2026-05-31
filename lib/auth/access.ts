@@ -108,6 +108,15 @@ export async function assertCanScheduleMakeup(
   return user;
 }
 
+/** Makeup hub — needs scheduling + all scheduled makeups. */
+export async function assertCanAccessMakeupHub(): Promise<SessionUser> {
+  const user = await requireEffectiveUser();
+  if (!hasStaffPrivileges(user)) {
+    throw new Error("Makeup hub requires owner or staff role.");
+  }
+  return user;
+}
+
 export function roleLabel(role: UserRole): string {
   if (role === "owner") return "Owner";
   if (role === "staff") return "Staff";

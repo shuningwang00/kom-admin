@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# last good classes sheet snapshot (local dev; shared path with website if same repo parent)
+/data/
+
 # vercel
 .vercel
 
