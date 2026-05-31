@@ -19,18 +19,10 @@ type Klass = {
 
 export default function ClassesManager() {
   const [classes, setClasses] = useState<Klass[]>([]);
-  const [weekdays, setWeekdays] = useState<string[]>([]);
-  const [form, setForm] = useState({
-    label: "",
-    level: "",
-    time: "",
-    tutor: "",
-    weekday: "other",
-  });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
-  const [syncNote, setSyncNote] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   const load = useCallback(async (refreshSheet = false) => {
     setLoading(true);
@@ -44,15 +36,12 @@ export default function ClassesManager() {
     }
     const data = (await res.json()) as {
       classes: Klass[];
-      weekdays: string[];
+      weekdays?: string[];
       sheetSync?: { synced: boolean; source?: string; syncedAt?: string };
     };
     setClasses(data.classes);
-    setWeekdays(data.weekdays);
-    if (data.sheetSync?.synced) {
-      setSyncNote(
-        `Updated from Google Sheet (${data.sheetSync.source ?? "sheet"}).`,
-      );
+    if (data.sheetSync?.syncedAt) {
+      setLastSyncedAt(data.sheetSync.syncedAt);
     }
     setLoading(false);
     setSyncing(false);
@@ -61,22 +50,6 @@ export default function ClassesManager() {
   useEffect(() => {
     load();
   }, [load]);
-
-  async function onAdd(e: React.FormEvent) {
-    e.preventDefault();
-    const res = await fetch("/api/classes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      setError(data.error ?? "Failed");
-      return;
-    }
-    setForm({ label: "", level: "", time: "", tutor: "", weekday: "other" });
-    load();
-  }
 
   async function refreshFromSheet() {
     setSyncing(true);
@@ -87,11 +60,25 @@ export default function ClassesManager() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-        <p className="text-sm text-zinc-600">
-          Class dropdowns (students, trials, enrollments) use the database. Sync
-          from your classes Google Sheet when the timetable changes — usually once
-          a day is enough.
-        </p>
+        <div>
+          <p className="text-sm text-zinc-600">
+            Class dropdowns (students, trials, enrollments) use the database.
+            Sync from your classes Google Sheet when the timetable changes.
+          </p>
+          {lastSyncedAt && (
+            <p className="mt-1 text-xs text-zinc-400">
+              Last synced:{" "}
+              {new Date(lastSyncedAt).toLocaleString("en-SG", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+              })}
+            </p>
+          )}
+        </div>
         <button
           type="button"
           onClick={refreshFromSheet}
@@ -101,60 +88,6 @@ export default function ClassesManager() {
           {syncing ? "Syncing…" : "Sync from sheet"}
         </button>
       </div>
-      {syncNote ? (
-        <p className="text-sm text-green-800">{syncNote}</p>
-      ) : null}
-      <form
-        onSubmit={onAdd}
-        className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2"
-      >
-        <h2 className="text-sm font-semibold text-zinc-800 sm:col-span-2">
-          Add class
-        </h2>
-        <input
-          placeholder="Full label (black row text)"
-          value={form.label}
-          onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm sm:col-span-2"
-          required
-        />
-        <input
-          placeholder="Level"
-          value={form.level}
-          onChange={(e) => setForm((f) => ({ ...f, level: e.target.value }))}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Time"
-          value={form.time}
-          onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Tutor"
-          value={form.tutor}
-          onChange={(e) => setForm((f) => ({ ...f, tutor: e.target.value }))}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-        />
-        <select
-          value={form.weekday}
-          onChange={(e) => setForm((f) => ({ ...f, weekday: e.target.value }))}
-          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-        >
-          {weekdays.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white sm:col-span-2 sm:w-fit"
-        >
-          Add class
-        </button>
-      </form>
-
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {loading ? (

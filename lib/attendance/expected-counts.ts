@@ -28,6 +28,8 @@ export type SessionRowWithExpected<T extends SessionRowInput> = T & {
   expected: SessionExpectedCounts;
   expectedLabel: string;
   waivedCount: number;
+  /** Active enrollments on this date before waive/hide filtering. */
+  rosterSize: number;
   studentsToMarkCount: number;
   savedCount: number;
   attendanceMarked: boolean;
@@ -123,6 +125,8 @@ export async function attachExpectedAttendance<T extends SessionRowInput>(
       expected,
       expectedLabel: formatSessionExpectedLabel(expected, waivedCount),
       waivedCount,
+      /** Number of actively enrolled students on this date (before waive/hide filtering). */
+      rosterSize: roster.length,
       studentsToMarkCount: studentsToMark.length,
       savedCount,
       attendanceMarked,

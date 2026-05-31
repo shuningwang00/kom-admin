@@ -2,6 +2,8 @@
 
 Knockout Math **admin app** (students, classes, enrollments) plus monthly billing from Google Sheets (PDFs + WhatsApp).
 
+**New here?** Read the full system guide: **[docs/KOM_ADMIN_MANUAL.md](docs/KOM_ADMIN_MANUAL.md)** — architecture, data flows, makeup rules, deploy, and pitfalls.
+
 **Phase 1:** Postgres roster, team allowlist, legacy billing at `/billing`.
 
 **Phase 2 (attendance):** Admin + Tutor roles, weekly session generation, mark attendance, reschedule sessions, admin schedules makeup. Audit log on changes.
