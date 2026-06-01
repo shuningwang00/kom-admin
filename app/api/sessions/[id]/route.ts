@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: Params) {
     const detail = await loadSessionDetail(id);
     if (!detail) return jsonError("Session not found.", 404);
 
-    const user = await assertCanMarkAttendance(detail.class.tutor);
+    const user = await assertCanMarkAttendance(detail.class.tutor, detail.session.reliefTutor);
     await ensureAttendanceRows(id, detail.class.id);
     const refreshed = await loadSessionDetail(id);
     if (!refreshed) return jsonError("Session not found.", 404);

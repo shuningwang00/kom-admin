@@ -1,9 +1,11 @@
 import { getAdminPassword } from "@/lib/config";
+import {
+  hasSessionCookieValue,
+  SESSION_COOKIE,
+} from "@/lib/auth/session";
 import { isPdfDevPreviewEnabled } from "@/lib/pdf/dev-preview";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const AUTH_COOKIE = "kom_billing_auth";
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/login") return true;
@@ -17,8 +19,9 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export function middleware(request: NextRequest) {
-  const password = getAdminPassword();
-  if (!password) return NextResponse.next();
+  // BILLING_ADMIN_PASSWORD set = require Google sign-in (kom_session), not the password value.
+  const authGateEnabled = getAdminPassword();
+  if (!authGateEnabled) return NextResponse.next();
 
   const { pathname } = request.nextUrl;
   if (isPublicPath(pathname)) return NextResponse.next();
@@ -27,8 +30,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const authed = request.cookies.get(AUTH_COOKIE)?.value === "1";
-  if (authed) return NextResponse.next();
+  const sessionRaw = request.cookies.get(SESSION_COOKIE)?.value;
+  if (hasSessionCookieValue(sessionRaw)) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

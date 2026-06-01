@@ -1,6 +1,7 @@
 import {
   assertCanManageStudents,
-  assertCanReadRoster,
+  requireEffectiveUser,
+  hasStaffPrivileges,
 } from "@/lib/auth/access";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { assignStudentBillingGroup } from "@/lib/billing-groups/resolve";
@@ -8,13 +9,67 @@ import { getDb } from "@/lib/db/index";
 import { billingGroups, classes, enrollments, students } from "@/lib/db/schema";
 import { contactFieldsForCreate } from "@/lib/students/contact-fields";
 import { buildStudentRoster } from "@/lib/students/roster";
+import { getTutorMatch, tutorCanAccessClass } from "@/lib/auth/user";
+import { loadPermissions, resolveUserPermissions } from "@/lib/settings/permissions";
 import { asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await assertCanReadRoster();
+    const user = await requireEffectiveUser();
+
+    if (!hasStaffPrivileges(user)) {
+      // Tutor path — only allowed with viewStudents permission, filtered to their classes
+      const db = getDb();
+      const globalPerms = await loadPermissions(db);
+      const resolved = await resolveUserPermissions(db, user.email, "tutor", globalPerms);
+      if (!resolved.tutor.viewStudents) return jsonError("Forbidden", 403);
+
+      const tutorMatch = await getTutorMatch(user.email);
+      if (!tutorMatch) return jsonOk({ students: [] });
+
+      const allClasses = await db
+        .select({ id: classes.id, tutor: classes.tutor })
+        .from(classes)
+        .where(eq(classes.isActive, true));
+      const tutorClassIds = allClasses
+        .filter((c) => tutorCanAccessClass(c.tutor, tutorMatch))
+        .map((c) => c.id);
+      if (tutorClassIds.length === 0) return jsonOk({ students: [] });
+
+      const enrollmentRows = await db
+        .select({ enrollment: enrollments, class: classes })
+        .from(enrollments)
+        .innerJoin(classes, eq(enrollments.classId, classes.id))
+        .where(isNull(enrollments.endedAt));
+
+      const studentIds = [
+        ...new Set(
+          enrollmentRows
+            .filter((r) => tutorClassIds.includes(r.enrollment.classId))
+            .map((r) => r.enrollment.studentId),
+        ),
+      ];
+      if (studentIds.length === 0) return jsonOk({ students: [] });
+
+      const rows = await db
+        .select({ student: students, billingGroupLabel: billingGroups.label })
+        .from(students)
+        .leftJoin(billingGroups, eq(students.billingGroupId, billingGroups.id))
+        .where(inArray(students.id, studentIds))
+        .orderBy(asc(students.name));
+
+      return jsonOk({
+        students: buildStudentRoster(
+          rows.map(({ student, billingGroupLabel }) => ({
+            student,
+            billingGroupLabel: billingGroupLabel ?? null,
+          })),
+          enrollmentRows,
+        ),
+      });
+    }
     const { searchParams } = new URL(request.url);
     const includeArchived = searchParams.get("archived") === "1";
     const withdrawnOnly = searchParams.get("withdrawn") === "1";

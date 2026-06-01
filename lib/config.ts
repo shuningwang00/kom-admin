@@ -29,6 +29,7 @@ export function getDefaultRatePerSession(): number {
   return Number.isFinite(n) && n > 0 ? n : 80;
 }
 
+/** When set, middleware requires a Google session cookie before app routes. */
 export function getAdminPassword(): string | undefined {
   const p = process.env.BILLING_ADMIN_PASSWORD?.trim();
   return p || undefined;

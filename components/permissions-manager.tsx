@@ -2,38 +2,41 @@
 
 import { useEffect, useState } from "react";
 
-type AppPermissions = {
-  tutor: {
-    viewCalendar: boolean;
-    viewPeople: boolean;
-    viewByDay: boolean;
-  };
-  staff: {
-    generateSessions: boolean;
-  };
-};
-
-const DEFAULT: AppPermissions = {
-  tutor: { viewCalendar: false, viewPeople: false, viewByDay: false },
-  staff: { generateSessions: false },
+type Member = {
+  id: string;
+  email: string;
+  name: string;
+  role: "tutor" | "staff";
+  tutorMatch: string;
+  resolvedPerms: Record<string, boolean>;
 };
 
 type PermRow = {
-  key: string;
+  flag: string;
   label: string;
   description: string;
-  role: "tutor" | "staff";
-  flag: string;
 };
 
-const PERM_ROWS: PermRow[] = [
-  { key: "tutor.viewCalendar", label: "View calendar", description: "Tutors can see the calendar page", role: "tutor", flag: "viewCalendar" },
-  { key: "tutor.viewPeople", label: "View people", description: "Tutors can see the people directory", role: "tutor", flag: "viewPeople" },
-  { key: "tutor.viewByDay", label: "View attendance by day", description: "Tutors can browse any day's attendance (not just their own classes)", role: "tutor", flag: "viewByDay" },
-  { key: "staff.generateSessions", label: "Generate sessions", description: "Staff can generate weekly sessions for a month", role: "staff", flag: "generateSessions" },
+const TUTOR_PERM_ROWS: PermRow[] = [
+  { flag: "viewCalendar", label: "View calendar", description: "Can see the calendar page" },
+  { flag: "viewPeople", label: "View people", description: "Can see the people directory (OOO)" },
+  { flag: "viewByDay", label: "View attendance by day", description: "Can browse any day's sessions, not just their own" },
+  { flag: "viewStudents", label: "View students", description: "Can see the student registry (filtered to their classes)" },
 ];
 
-function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+const STAFF_PERM_ROWS: PermRow[] = [
+  { flag: "generateSessions", label: "Generate sessions", description: "Can generate weekly sessions for a month" },
+];
+
+function Toggle({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -46,7 +49,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       }`}
     >
       <span
-        className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ${
+        className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
           checked ? "translate-x-5" : "translate-x-0"
         }`}
       />
@@ -54,39 +57,88 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
+function MemberCard({
+  member,
+  permRows,
+  saving,
+  onToggle,
+}: {
+  member: Member;
+  permRows: PermRow[];
+  saving: string | null;
+  onToggle: (memberId: string, flag: string, value: boolean) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <div className="border-b border-zinc-100 px-4 py-3">
+        <p className="font-medium text-zinc-900">{member.name}</p>
+        <p className="text-xs text-zinc-400">{member.email}</p>
+      </div>
+      <div className="divide-y divide-zinc-50">
+        {permRows.map((row) => {
+          const val = member.resolvedPerms[row.flag] ?? false;
+          const key = `${member.id}:${row.flag}`;
+          return (
+            <div key={row.flag} className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-800">{row.label}</p>
+                <p className="text-xs text-zinc-500">{row.description}</p>
+              </div>
+              <Toggle
+                checked={val}
+                onChange={(v) => onToggle(member.id, row.flag, v)}
+                disabled={saving === key}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function PermissionsManager() {
-  const [perms, setPerms] = useState<AppPermissions>(DEFAULT);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/permissions")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { permissions?: AppPermissions } | null) => {
-        if (data?.permissions) setPerms(data.permissions);
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { members?: Member[] }) => {
+        if (data.members) setMembers(data.members);
       })
       .catch(() => setError("Failed to load permissions"))
       .finally(() => setLoading(false));
   }, []);
 
-  async function toggle(row: PermRow, value: boolean) {
-    setSaving(row.key);
+  async function handleToggle(memberId: string, flag: string, value: boolean) {
+    const key = `${memberId}:${flag}`;
+    setSaving(key);
     setError("");
-    const patch: Partial<AppPermissions> =
-      row.role === "tutor"
-        ? { tutor: { ...perms.tutor, [row.flag]: value } }
-        : { staff: { ...perms.staff, [row.flag]: value } };
+
+    const member = members.find((m) => m.id === memberId);
+    if (!member) return;
+
+    const newPerms = { ...member.resolvedPerms, [flag]: value };
 
     try {
-      const res = await fetch("/api/admin/permissions", {
+      const res = await fetch(`/api/admin/permissions/user/${memberId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(newPerms),
       });
-      const data = (await res.json()) as { permissions?: AppPermissions; error?: string };
-      if (!res.ok) { setError(data.error ?? "Failed to save"); return; }
-      if (data.permissions) setPerms(data.permissions);
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setError(data.error ?? "Failed to save");
+        return;
+      }
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === memberId ? { ...m, resolvedPerms: newPerms } : m,
+        ),
+      );
     } catch {
       setError("Failed to save");
     } finally {
@@ -94,61 +146,61 @@ export default function PermissionsManager() {
     }
   }
 
-  const tutorRows = PERM_ROWS.filter((r) => r.role === "tutor");
-  const staffRows = PERM_ROWS.filter((r) => r.role === "staff");
+  const tutors = members.filter((m) => m.role === "tutor");
+  const staff = members.filter((m) => m.role === "staff");
 
   if (loading) return <p className="text-sm text-zinc-500">Loading…</p>;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {error && (
-        <p className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>
+        <p className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error}
+        </p>
       )}
 
       <section>
-        <h2 className="mb-1 text-base font-semibold text-zinc-900">Tutor permissions</h2>
-        <p className="mb-4 text-sm text-zinc-500">Controls what tutors can access beyond their own classes.</p>
-        <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white shadow-sm">
-          {tutorRows.map((row) => {
-            const val = (perms.tutor as Record<string, boolean>)[row.flag] ?? false;
-            return (
-              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-900">{row.label}</p>
-                  <p className="text-xs text-zinc-500">{row.description}</p>
-                </div>
-                <Toggle
-                  checked={val}
-                  onChange={(v) => void toggle(row, v)}
-                  disabled={saving === row.key}
-                />
-              </div>
-            );
-          })}
-        </div>
+        <h2 className="mb-1 text-base font-semibold text-zinc-900">Tutors</h2>
+        <p className="mb-4 text-sm text-zinc-500">
+          Tutors always see their own classes and can mark attendance. Toggle anything beyond that here.
+        </p>
+        {tutors.length === 0 ? (
+          <p className="text-sm text-zinc-400">No tutors on the team yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {tutors.map((m) => (
+              <MemberCard
+                key={m.id}
+                member={m}
+                permRows={TUTOR_PERM_ROWS}
+                saving={saving}
+                onToggle={handleToggle}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       <section>
-        <h2 className="mb-1 text-base font-semibold text-zinc-900">Staff permissions</h2>
-        <p className="mb-4 text-sm text-zinc-500">Extra actions staff can perform (beyond viewing).</p>
-        <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white shadow-sm">
-          {staffRows.map((row) => {
-            const val = (perms.staff as Record<string, boolean>)[row.flag] ?? false;
-            return (
-              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-900">{row.label}</p>
-                  <p className="text-xs text-zinc-500">{row.description}</p>
-                </div>
-                <Toggle
-                  checked={val}
-                  onChange={(v) => void toggle(row, v)}
-                  disabled={saving === row.key}
-                />
-              </div>
-            );
-          })}
-        </div>
+        <h2 className="mb-1 text-base font-semibold text-zinc-900">Staff</h2>
+        <p className="mb-4 text-sm text-zinc-500">
+          Staff can access attendance, billing, makeups, and trials. Extra capabilities below.
+        </p>
+        {staff.length === 0 ? (
+          <p className="text-sm text-zinc-400">No staff on the team yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {staff.map((m) => (
+              <MemberCard
+                key={m.id}
+                member={m}
+                permRows={STAFF_PERM_ROWS}
+                saving={saving}
+                onToggle={handleToggle}
+              />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

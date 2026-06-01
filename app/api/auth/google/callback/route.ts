@@ -1,3 +1,4 @@
+import { AUTH_COOKIE } from "@/lib/auth/password";
 import { resolveRoleForEmail, setSessionCookie } from "@/lib/auth/session";
 import {
   exchangeCodeForTokens,
@@ -54,7 +55,9 @@ export async function GET(request: Request) {
       base.searchParams.set("google_connected", "1");
     }
 
-    return NextResponse.redirect(base);
+    const res = NextResponse.redirect(base);
+    res.cookies.set(AUTH_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+    return res;
   } catch (err) {
     const message = err instanceof Error ? err.message : "oauth_failed";
     base.searchParams.set("google_error", message);

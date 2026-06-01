@@ -1,7 +1,6 @@
 import { generateSessionsForMonth } from "@/lib/scheduling/generate-sessions";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { requireEffectiveUser, hasStaffPrivileges } from "@/lib/auth/access";
-import { hasSitePasswordAuth } from "@/lib/auth/password";
 import { getDb } from "@/lib/db/index";
 import { loadPermissions } from "@/lib/settings/permissions";
 
@@ -9,7 +8,6 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    if (!(await hasSitePasswordAuth())) return jsonError("Unauthorized", 401);
     const user = await requireEffectiveUser();
     if (user.role !== "owner") {
       if (!hasStaffPrivileges(user)) return jsonError("Forbidden", 403);

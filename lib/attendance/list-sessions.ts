@@ -78,7 +78,11 @@ export async function listSessionsForDate(date: string, user: SessionUser) {
   let visible = rows;
   if (user.role !== "owner" && user.role !== "staff") {
     const match = await getTutorMatch(user.email);
-    visible = rows.filter((r) => tutorCanAccessClass(r.class.tutor, match));
+    visible = rows.filter(
+      (r) =>
+        tutorCanAccessClass(r.class.tutor, match) ||
+        tutorCanAccessClass(r.session.reliefTutor, match),
+    );
   }
 
   const withExpected = await attachExpectedAttendance(visible);
@@ -126,7 +130,11 @@ export async function listTutorSessionsOverview(user: SessionUser) {
   const roleFiltered =
     user.role === "owner" || user.role === "staff"
       ? rows
-      : rows.filter((r) => tutorCanAccessClass(r.class.tutor, match));
+      : rows.filter(
+          (r) =>
+            tutorCanAccessClass(r.class.tutor, match) ||
+            tutorCanAccessClass(r.session.reliefTutor, match),
+        );
 
   const filtered = withEnrolledStudentsOnly(roleFiltered, enrolledClassIds);
 
@@ -195,7 +203,11 @@ export async function listUnmarkedPastSessions(
   let visible = rows;
   if (user.role !== "owner" && user.role !== "staff") {
     const match = await getTutorMatch(user.email);
-    visible = rows.filter((r) => tutorCanAccessClass(r.class.tutor, match));
+    visible = rows.filter(
+      (r) =>
+        tutorCanAccessClass(r.class.tutor, match) ||
+        tutorCanAccessClass(r.session.reliefTutor, match),
+    );
   }
 
   const withExpected = await attachExpectedAttendance(visible);

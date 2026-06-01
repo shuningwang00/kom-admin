@@ -1,5 +1,4 @@
 import { requireOwner } from "@/lib/auth/access";
-import { hasSitePasswordAuth } from "@/lib/auth/password";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { siteAllowlist } from "@/lib/db/schema";
@@ -11,9 +10,6 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    if (!(await hasSitePasswordAuth())) {
-      return jsonError("Unauthorized", 401);
-    }
     await requireOwner();
     const { id } = await params;
     const body = (await request.json()) as Record<string, unknown>;
@@ -53,9 +49,6 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    if (!(await hasSitePasswordAuth())) {
-      return jsonError("Unauthorized", 401);
-    }
     await requireOwner();
     const { id } = await params;
     const db = getDb();

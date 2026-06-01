@@ -1,5 +1,4 @@
 import { requireOwner } from "@/lib/auth/access";
-import { hasSitePasswordAuth } from "@/lib/auth/password";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { siteAllowlist } from "@/lib/db/schema";
@@ -11,9 +10,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    if (!(await hasSitePasswordAuth())) {
-      return jsonError("Unauthorized", 401);
-    }
     await requireOwner();
     const db = getDb();
     const [rows, activeTutors] = await Promise.all([
@@ -35,9 +31,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (!(await hasSitePasswordAuth())) {
-      return jsonError("Unauthorized", 401);
-    }
     await requireOwner();
     const body = (await request.json()) as {
       email?: string;

@@ -6,7 +6,12 @@ import { siteAllowlist } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 
-const SESSION_COOKIE = "kom_session";
+export const SESSION_COOKIE = "kom_session";
+
+/** Middleware / edge: cookie present (full validation is server-side). */
+export function hasSessionCookieValue(raw: string | undefined): boolean {
+  return Boolean(raw?.trim());
+}
 
 export async function resolveRoleForEmail(
   email: string,

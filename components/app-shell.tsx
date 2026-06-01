@@ -9,7 +9,7 @@ const HEADER_ROW =
   "flex h-14 shrink-0 items-center border-b border-zinc-800";
 
 type AppPermissions = {
-  tutor: { viewCalendar: boolean; viewPeople: boolean; viewByDay: boolean };
+  tutor: { viewCalendar: boolean; viewPeople: boolean; viewByDay: boolean; viewStudents: boolean };
   staff: { generateSessions: boolean };
 };
 
@@ -54,7 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/people", label: "People", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewPeople" } },
   { href: "/makeup", label: "Makeup", roles: ["owner", "staff"] },
   { href: "/trials", label: "Trials", roles: ["owner", "staff"] },
-  { href: "/students", label: "Students", roles: ["owner", "staff"] },
+  { href: "/students", label: "Students", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewStudents" } },
   { href: "/classes", label: "Classes", roles: ["owner"] },
   { href: "/enrollments", label: "Enrollments", roles: ["owner", "staff"] },
   { href: "/billing", label: "Billing", roles: ["owner", "staff"] },
@@ -137,6 +137,11 @@ export default function AppShell({
   }, []);
 
   useEffect(() => {
+    const signedIn =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("signed_in") === "1";
+    if (signedIn) _me = null;
+
     if (_me !== null) return;
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
@@ -157,12 +162,12 @@ export default function AppShell({
       });
   }, []);
 
-  const role = (me?.user?.role ?? "owner") as "owner" | "staff" | "tutor";
+  const role = me?.user?.role as "owner" | "staff" | "tutor" | undefined;
 
   const navItems = useMemo(
     () =>
       NAV_ITEMS.filter((item) => {
-        if (!item.roles.includes(role)) return false;
+        if (!role || !item.roles.includes(role)) return false;
         if (!item.permission) return true;
         if (item.permission.role !== role) return true;
         const rolePerms = me?.permissions?.[item.permission.role] as Record<string, boolean> | undefined;
@@ -180,9 +185,7 @@ export default function AppShell({
     window.location.reload();
   }
 
-  const badge =
-    me?.user?.roleLabel ??
-    (role === "owner" ? "Owner" : role === "staff" ? "Staff" : "Tutor");
+  const badge = me?.user?.roleLabel ?? role ?? "";
 
   const toggleSidebar = () => setSidebarOpen((open) => !open);
 
@@ -268,10 +271,10 @@ export default function AppShell({
                 </div>
               ) : (
                 <Link
-                  href="/api/auth/google?mode=signin"
+                  href="/login"
                   className="text-sm font-medium text-orange-400 hover:underline"
                 >
-                  Sign in with Google
+                  Sign in
                 </Link>
               )}
             </div>

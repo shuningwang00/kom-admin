@@ -203,6 +203,8 @@ export const siteAllowlist = pgTable(
     fullName: text("full_name").notNull().default(""),
     /** For tutors: match class.tutor (e.g. JUNYANG). Ignored for staff. */
     tutorMatch: text("tutor_match").notNull().default(""),
+    /** JSON blob of per-user permission overrides (flat key:boolean pairs). Merges over role defaults. */
+    permissionsJson: text("permissions_json").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

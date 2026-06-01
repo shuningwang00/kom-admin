@@ -62,56 +62,6 @@ async function downloadPdf(
   URL.revokeObjectURL(url);
 }
 
-function LoginGate({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    setLoading(false);
-    if (!res.ok) {
-      setError("Incorrect password.");
-      return;
-    }
-    onLoggedIn();
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      className="mx-auto max-w-sm rounded-xl border border-orange-100 bg-white p-6 shadow-sm"
-    >
-      <h2 className="text-lg font-semibold text-zinc-900">Sign in</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        Enter the billing admin password.
-      </p>
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="mt-4 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-        autoComplete="current-password"
-      />
-      {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
-      <button
-        type="submit"
-        disabled={loading}
-        className="mt-4 w-full rounded-lg bg-orange-500 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
-      >
-        {loading ? "…" : "Continue"}
-      </button>
-    </form>
-  );
-}
-
 function StatusBadge({
   status,
   onPaidClick,
@@ -252,9 +202,15 @@ export default function BillingDashboard() {
     ]);
     const admin = await adminRes.json();
     const google = await googleRes.json();
-    setAuthRequired(Boolean(admin.authRequired && !admin.authed));
+    setAuthRequired(Boolean(admin.authRequired && !admin.signedIn));
     setGoogleStatus(google);
   }, []);
+
+  useEffect(() => {
+    if (authRequired) {
+      window.location.href = "/login?next=/billing";
+    }
+  }, [authRequired]);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -345,7 +301,11 @@ export default function BillingDashboard() {
   }
 
   if (authRequired) {
-    return <LoginGate onLoggedIn={() => setAuthRequired(false)} />;
+    return (
+      <p className="py-12 text-center text-sm text-zinc-500">
+        Redirecting to sign in…
+      </p>
+    );
   }
 
   const totalDue = filteredRows.reduce((s, r) => s + r.computedAmount, 0);

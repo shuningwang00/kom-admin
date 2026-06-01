@@ -1,11 +1,12 @@
-import { hasSitePasswordAuth } from "@/lib/auth/password";
+import { getEffectiveUser } from "@/lib/auth/user";
+import { getAdminPassword } from "@/lib/config";
 import { checkDbHealth } from "@/lib/db/health";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!(await hasSitePasswordAuth())) {
+  if (getAdminPassword() && !(await getEffectiveUser())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
