@@ -17,10 +17,8 @@ export async function GET(request: Request) {
     await assertCanReadRoster();
     const activeOnly = new URL(request.url).searchParams.get("all") !== "1";
     const db = getDb();
-    const sync = await syncClassesFromSheetIfConfigured(
-      db,
-      new URL(request.url).searchParams.get("refresh") === "1",
-    );
+    const forceSync = new URL(request.url).searchParams.get("refresh") === "1";
+    const sync = await syncClassesFromSheetIfConfigured(db, forceSync);
     const rows = await db
       .select()
       .from(classes)

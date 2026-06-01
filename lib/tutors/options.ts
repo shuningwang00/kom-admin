@@ -11,10 +11,7 @@ export async function listTutorOptions(): Promise<string[]> {
     .where(eq(classes.isActive, true));
 
   const fromAllowlist = await db
-    .select({
-      tutorMatch: siteAllowlist.tutorMatch,
-      displayName: siteAllowlist.displayName,
-    })
+    .select({ tutorMatch: siteAllowlist.tutorMatch })
     .from(siteAllowlist)
     .where(eq(siteAllowlist.isActive, true));
 
@@ -25,9 +22,7 @@ export async function listTutorOptions(): Promise<string[]> {
   }
   for (const row of fromAllowlist) {
     const match = row.tutorMatch.trim();
-    const display = row.displayName.trim();
     if (match) names.add(match);
-    if (display) names.add(display);
   }
 
   return [...names].sort((a, b) =>

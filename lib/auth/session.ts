@@ -27,7 +27,8 @@ export async function resolveRoleForEmail(
     .limit(1);
 
   if (!row) return null;
-  return row.role === "staff" ? "staff" : "tutor";
+  if (row.role === "staff" || row.role === "staff_tutor") return "staff";
+  return "tutor";
 }
 
 export async function setSessionCookie(user: SessionUser) {

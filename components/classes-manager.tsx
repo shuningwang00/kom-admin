@@ -17,12 +17,25 @@ type Klass = {
   isActive: boolean;
 };
 
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleString("en-SG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export default function ClassesManager() {
   const [classes, setClasses] = useState<Klass[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [backupAt, setBackupAt] = useState<string | null>(null);
 
   const load = useCallback(async (refreshSheet = false) => {
     setLoading(true);
@@ -36,13 +49,11 @@ export default function ClassesManager() {
     }
     const data = (await res.json()) as {
       classes: Klass[];
-      weekdays?: string[];
-      sheetSync?: { synced: boolean; source?: string; syncedAt?: string };
+      sheetSync?: { synced: boolean; syncedAt?: string; backupAt?: string };
     };
     setClasses(data.classes);
-    if (data.sheetSync?.syncedAt) {
-      setLastSyncedAt(data.sheetSync.syncedAt);
-    }
+    if (data.sheetSync?.syncedAt) setLastSyncedAt(data.sheetSync.syncedAt);
+    if (data.sheetSync?.backupAt) setBackupAt(data.sheetSync.backupAt);
     setLoading(false);
     setSyncing(false);
   }, []);
@@ -57,44 +68,71 @@ export default function ClassesManager() {
     await load(true);
   }
 
+  async function restorePrevious() {
+    if (!confirm("Restore the previous version of the class schedule? This will revert all classes to the state before the last sync.")) return;
+    setRestoring(true);
+    setError("");
+    const res = await fetch("/api/classes/restore", { method: "POST" });
+    setRestoring(false);
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string };
+      setError(data.error ?? "Restore failed");
+      return;
+    }
+    await load();
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-        <div>
-          <p className="text-sm text-zinc-600">
-            Class dropdowns (students, trials, enrollments) use the database.
-            Sync from your classes Google Sheet when the timetable changes.
-          </p>
-          {lastSyncedAt && (
-            <p className="mt-1 text-xs text-zinc-400">
-              Last synced:{" "}
-              {new Date(lastSyncedAt).toLocaleString("en-SG", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                hour12: true,
-              })}
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-zinc-600">
+              The database is the source of truth — classes persist until you sync again.
+              Press sync only when your Google Sheet timetable has changed.
             </p>
-          )}
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-400">
+              {lastSyncedAt && (
+                <span>Last synced: {fmtDate(lastSyncedAt)}</span>
+              )}
+              {backupAt && (
+                <span>Previous version: {fmtDate(backupAt)}</span>
+              )}
+              {!lastSyncedAt && (
+                <span className="text-amber-600">No sync yet — classes loaded from initial setup.</span>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {backupAt && (
+              <button
+                type="button"
+                onClick={restorePrevious}
+                disabled={restoring || syncing}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
+              >
+                {restoring ? "Restoring…" : "Restore previous"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={refreshFromSheet}
+              disabled={syncing || loading}
+              className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
+            >
+              {syncing ? "Syncing…" : "Sync from sheet"}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={refreshFromSheet}
-          disabled={syncing || loading}
-          className="shrink-0 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
-        >
-          {syncing ? "Syncing…" : "Sync from sheet"}
-        </button>
       </div>
+
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : classes.length === 0 ? (
         <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm">
-          No classes yet. Sync from sheet or add one above.
+          No classes in the database yet. Press &quot;Sync from sheet&quot; to import your timetable.
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -144,8 +182,7 @@ export default function ClassesManager() {
             </table>
           </div>
           <p className="border-t border-zinc-100 px-3 py-2 text-xs text-zinc-500">
-            {classes.length} class{classes.length === 1 ? "" : "es"} · includes
-            inactive rows from sheet sync
+            {classes.length} class{classes.length === 1 ? "" : "es"} · inactive rows shown
           </p>
         </div>
       )}

@@ -10,7 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const allowlistRoleEnum = pgEnum("allowlist_role", ["staff", "tutor"]);
+export const allowlistRoleEnum = pgEnum("allowlist_role", ["staff", "tutor", "staff_tutor"]);
 
 export const contactTypeEnum = pgEnum("contact_type", [
   "mom",
@@ -197,7 +197,10 @@ export const siteAllowlist = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     email: text("email").notNull(),
     role: allowlistRoleEnum("role").notNull().default("tutor"),
+    /** Short name shown in app (roster, calendar, attendance). For tutors this is the schedule name (tutorMatch); set this for staff. */
     displayName: text("display_name").notNull().default(""),
+    /** Legal / full name — for payroll, profile, formal use. */
+    fullName: text("full_name").notNull().default(""),
     /** For tutors: match class.tutor (e.g. JUNYANG). Ignored for staff. */
     tutorMatch: text("tutor_match").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
@@ -304,6 +307,12 @@ export const tutorOoo = pgTable(
     index("tutor_ooo_dates_idx").on(t.startDate, t.endDate),
   ],
 );
+
+export const siteSettings = pgTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const importRuns = pgTable("import_runs", {
   id: uuid("id").primaryKey().defaultRandom(),

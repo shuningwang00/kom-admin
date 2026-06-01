@@ -10,7 +10,7 @@ import {
 import { isReliefTutorNeeded } from "@/lib/tutors/constants";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type SessionRow = {
   session: {
@@ -45,6 +45,8 @@ export default function AttendanceDaily() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [role, setRole] = useState<string>("admin");
+  const [canGenerateSessions, setCanGenerateSessions] = useState(false);
+  const permFetched = useRef(false);
   const [showUnmarkedPast, setShowUnmarkedPast] = useState(false);
   const [unmarkedPast, setUnmarkedPast] = useState<SessionRow[]>([]);
   const [unmarkedLoading, setUnmarkedLoading] = useState(false);
@@ -71,6 +73,20 @@ export default function AttendanceDaily() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (permFetched.current) return;
+    permFetched.current = true;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { user?: { role?: string }; permissions?: { staff?: { generateSessions?: boolean } } } | null) => {
+        if (!data) return;
+        const isOwner = data.user?.role === "owner";
+        const staffCanGenerate = data.permissions?.staff?.generateSessions === true;
+        setCanGenerateSessions(isOwner || staffCanGenerate);
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
 
   const loadUnmarkedPast = useCallback(async () => {
     setUnmarkedLoading(true);
@@ -115,7 +131,7 @@ export default function AttendanceDaily() {
 
   return (
     <div className="space-y-6">
-      {role === "owner" && (
+      {canGenerateSessions && (
         <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-zinc-800">
             Generate weekly sessions

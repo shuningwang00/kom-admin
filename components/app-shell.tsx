@@ -8,6 +8,11 @@ const MOBILE_MAX = 767;
 const HEADER_ROW =
   "flex h-14 shrink-0 items-center border-b border-zinc-800";
 
+type AppPermissions = {
+  tutor: { viewCalendar: boolean; viewPeople: boolean; viewByDay: boolean };
+  staff: { generateSessions: boolean };
+};
+
 type MeResponse = {
   user: {
     email: string;
@@ -16,6 +21,7 @@ type MeResponse = {
     displayName: string;
   } | null;
   isOwner: boolean;
+  permissions?: AppPermissions;
 };
 
 type HealthResponse = {
@@ -36,14 +42,16 @@ type NavItem = {
   href: string;
   label: string;
   roles: Array<"owner" | "staff" | "tutor">;
+  /** If set, only shown when the role's permission flag is true. */
+  permission?: { role: "tutor" | "staff"; flag: keyof AppPermissions["tutor"] | keyof AppPermissions["staff"] };
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/attendance/tutor", label: "My classes", roles: ["tutor"] },
-  { href: "/attendance", label: "By day", roles: ["tutor"] },
+  { href: "/attendance", label: "By day", roles: ["tutor"], permission: { role: "tutor", flag: "viewByDay" } },
   { href: "/attendance", label: "Attendance", roles: ["owner", "staff"] },
-  { href: "/calendar", label: "Calendar", roles: ["owner", "staff", "tutor"] },
-  { href: "/people", label: "People", roles: ["owner", "staff", "tutor"] },
+  { href: "/calendar", label: "Calendar", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewCalendar" } },
+  { href: "/people", label: "People", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewPeople" } },
   { href: "/makeup", label: "Makeup", roles: ["owner", "staff"] },
   { href: "/trials", label: "Trials", roles: ["owner", "staff"] },
   { href: "/students", label: "Students", roles: ["owner", "staff"] },
@@ -51,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/enrollments", label: "Enrollments", roles: ["owner", "staff"] },
   { href: "/billing", label: "Billing", roles: ["owner", "staff"] },
   { href: "/admin/teachers", label: "Team access", roles: ["owner"] },
+  { href: "/admin/permissions", label: "Permissions", roles: ["owner"] },
 ];
 
 function MenuIcon() {
@@ -151,8 +160,15 @@ export default function AppShell({
   const role = (me?.user?.role ?? "owner") as "owner" | "staff" | "tutor";
 
   const navItems = useMemo(
-    () => NAV_ITEMS.filter((item) => item.roles.includes(role)),
-    [role],
+    () =>
+      NAV_ITEMS.filter((item) => {
+        if (!item.roles.includes(role)) return false;
+        if (!item.permission) return true;
+        if (item.permission.role !== role) return true;
+        const rolePerms = me?.permissions?.[item.permission.role] as Record<string, boolean> | undefined;
+        return rolePerms?.[item.permission.flag] === true;
+      }),
+    [role, me?.permissions],
   );
 
   const closeSidebarOnMobile = useCallback(() => {
@@ -202,7 +218,7 @@ export default function AppShell({
               <img
                 src="/logo-icon-light.png"
                 alt=""
-                className="h-6 w-6 shrink-0 object-contain"
+                className="h-8 w-8 shrink-0 object-contain"
               />
               <span className="truncate text-lg font-semibold leading-none text-white">
                 Staff Portal
@@ -287,7 +303,7 @@ export default function AppShell({
           <img
             src="/logo-full-light.jpg"
             alt="KNOCKOUT/MATH"
-            className="h-7 w-auto shrink-0 object-contain mix-blend-screen"
+            className="h-10 w-auto shrink-0 object-contain mix-blend-screen"
           />
         </header>
 

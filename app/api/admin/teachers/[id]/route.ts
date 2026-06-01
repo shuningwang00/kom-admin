@@ -22,12 +22,15 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.displayName != null) {
       patch.displayName = String(body.displayName).trim();
     }
+    if (body.fullName != null) {
+      patch.fullName = String(body.fullName).trim();
+    }
     if (body.tutorMatch != null) {
       patch.tutorMatch = String(body.tutorMatch).trim();
     }
     if (body.isActive != null) patch.isActive = Boolean(body.isActive);
-    if (body.role === "staff" || body.role === "tutor") {
-      patch.role = body.role;
+    if (body.role === "staff" || body.role === "tutor" || body.role === "staff_tutor") {
+      patch.role = body.role as "staff" | "tutor" | "staff_tutor";
     }
     if (body.email != null) {
       const email = String(body.email).trim().toLowerCase();
