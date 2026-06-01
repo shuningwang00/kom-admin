@@ -90,6 +90,14 @@ function isoToYearMonth(iso: string): string {
   return iso.slice(0, 7);
 }
 
+function fmt12h(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (isNaN(h)) return hhmm;
+  const hour = h % 12 || 12;
+  const mer = h >= 12 ? "pm" : "am";
+  return m ? `${hour}:${String(m).padStart(2, "0")}${mer}` : `${hour}${mer}`;
+}
+
 function formatWeekLabel(weekStart: string): string {
   const start = new Date(weekStart + "T00:00:00");
   const end = new Date(weekStart + "T00:00:00");
@@ -107,7 +115,7 @@ function formatWeekLabel(weekStart: string): string {
 
 // ─── session chip ────────────────────────────────────────────────────────────
 
-function SessionChip({ session }: { session: CalendarSessionItem }) {
+function SessionChip({ session, showTime = false }: { session: CalendarSessionItem; showTime?: boolean }) {
   const base =
     "rounded px-1.5 py-0.5 text-xs font-medium leading-tight truncate max-w-full";
 
@@ -130,11 +138,14 @@ function SessionChip({ session }: { session: CalendarSessionItem }) {
       {session.status === "red" && (
         <span className="ml-1 text-red-500">⚑</span>
       )}
+      {showTime && session.timeLabel && (
+        <span className="ml-1.5 font-normal opacity-70">{session.timeLabel}</span>
+      )}
     </Link>
   );
 }
 
-function HolSessionChip({ session }: { session: CalendarHolSessionItem }) {
+function HolSessionChip({ session, showTime = false }: { session: CalendarHolSessionItem; showTime?: boolean }) {
   const base =
     "rounded px-1.5 py-0.5 text-xs font-medium leading-tight truncate max-w-full";
   const label = session.tutorName
@@ -147,6 +158,11 @@ function HolSessionChip({ session }: { session: CalendarHolSessionItem }) {
       title={`${session.programmeName}${session.tutorName ? ` · ${session.tutorName}` : ""}${session.timeLabel ? ` · ${session.timeLabel}` : ""}`}
     >
       {label}
+      {showTime && session.timeLabel && (
+        <span className="ml-1.5 font-normal opacity-70">
+          {session.timeLabel.replace(/(\d{2}):(\d{2})/g, (_, h, m) => fmt12h(`${h}:${m}`))}
+        </span>
+      )}
     </Link>
   );
 }
@@ -160,9 +176,9 @@ function AdminShiftChip({ shift }: { shift: CalendarAdminShift }) {
           ? "border-dashed border-amber-300 bg-amber-50 text-amber-900"
           : "border-violet-300 bg-violet-100 text-violet-900"
       }`}
-      title={`Admin: ${shift.staffName} ${shift.startTime}–${shift.endTime}${draft ? " (draft)" : ""}`}
+      title={`Admin: ${shift.staffName} ${fmt12h(shift.startTime)}–${fmt12h(shift.endTime)}${draft ? " (draft)" : ""}`}
     >
-      {shift.staffName} {shift.startTime}–{shift.endTime}
+      {shift.staffName} {fmt12h(shift.startTime)}–{fmt12h(shift.endTime)}
     </div>
   );
 }
@@ -606,10 +622,10 @@ function ListView({
                 <AdminShiftChip key={s.id} shift={s} />
               ))}
               {sessions.map((s) => (
-                <SessionChip key={s.sessionId} session={s} />
+                <SessionChip key={s.sessionId} session={s} showTime />
               ))}
               {holSessions.map((s) => (
-                <HolSessionChip key={s.sessionId} session={s} />
+                <HolSessionChip key={s.sessionId} session={s} showTime />
               ))}
             </div>
           </li>
@@ -673,12 +689,15 @@ export default function CalendarView() {
   const [rosterSaving, setRosterSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const [weekStart, setWeekStart] = useState<string | null>(null);
   const [hideInactive, setHideInactive] = useState(true);
   const [showLessons, setShowLessons] = useState(true);
   const [scopedToOwnClasses, setScopedToOwnClasses] = useState(false);
   const [showAdmin, setShowAdmin] = useState(true);
-  const [viewMode, setViewMode] = useState<"month" | "week" | "list">("month");
+  const [viewMode, setViewMode] = useState<"month" | "week" | "list">(
+    isMobile ? "list" : "month",
+  );
 
   const loadCalendar = useCallback(async (ym: string) => {
     const res = await fetch(`/api/calendar/${ym}`);

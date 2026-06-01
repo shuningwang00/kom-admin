@@ -3,7 +3,7 @@ import { jsonError, jsonOk } from "@/lib/api/json";
 import { requireEffectiveUser } from "@/lib/auth/access";
 import { getDb } from "@/lib/db/index";
 import { loadPermissions } from "@/lib/settings/permissions";
-import { listHolSessionsForDate } from "@/lib/programmes/list";
+import { listHolSessionsForDate, listHolSessionsForMonth } from "@/lib/programmes/list";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +18,11 @@ export async function GET(request: Request) {
       if (!/^\d{4}-\d{2}$/.test(month)) {
         return jsonError("Query ?month=YYYY-MM is required.");
       }
-      const sessions = await listSessionsForMonth(month, user);
-      return jsonOk({ month, sessions, role: user.role });
+      const [sessions, holSessions] = await Promise.all([
+        listSessionsForMonth(month, user),
+        listHolSessionsForMonth(month),
+      ]);
+      return jsonOk({ month, sessions, holSessions, role: user.role });
     }
 
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {

@@ -99,11 +99,19 @@ const emptySessionForm = {
   notes: "",
 };
 
+function fmt12h(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (isNaN(h)) return hhmm;
+  const hour = h % 12 || 12;
+  const mer = h >= 12 ? "pm" : "am";
+  return m ? `${hour}:${String(m).padStart(2, "0")}${mer}` : `${hour}${mer}`;
+}
+
 function combineTimeLabel(start: string, end: string): string {
   if (!start && !end) return "";
-  if (!end) return start;
-  if (!start) return end;
-  return `${start}–${end}`;
+  if (!end) return fmt12h(start);
+  if (!start) return fmt12h(end);
+  return `${fmt12h(start)} – ${fmt12h(end)}`;
 }
 
 

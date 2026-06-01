@@ -35,10 +35,11 @@ type HolSessionRow = {
   programmeName: string;
   tutorName: string;
   timeLabel: string;
-  participantCount: number;
+  scheduledDate?: string;
+  participantCount?: number;
   newCount: number;
   existingCount: number;
-  waivedCount: number;
+  waivedCount?: number;
 };
 
 function expectedLabelColor(label: string): string {
@@ -110,6 +111,7 @@ export default function AttendanceDaily() {
     new Date().toISOString().slice(0, 7),
   );
   const [monthSessions, setMonthSessions] = useState<SessionRow[]>([]);
+  const [monthHolSessions, setMonthHolSessions] = useState<HolSessionRow[]>([]);
   const [monthLoading, setMonthLoading] = useState(false);
   const [monthError, setMonthError] = useState("");
 
@@ -145,8 +147,9 @@ export default function AttendanceDaily() {
       setMonthError(data.error ?? "Failed to load");
       return;
     }
-    const data = (await res.json()) as { sessions: SessionRow[] };
+    const data = (await res.json()) as { sessions: SessionRow[]; holSessions?: HolSessionRow[] };
     setMonthSessions(data.sessions);
+    setMonthHolSessions(data.holSessions ?? []);
   }, []);
 
   useEffect(() => {
@@ -206,7 +209,14 @@ export default function AttendanceDaily() {
     acc[d].push(row);
     return acc;
   }, {});
-  const monthDates = Object.keys(monthByDate).sort();
+  const monthHolByDate = monthHolSessions.reduce<Record<string, HolSessionRow[]>>((acc, row) => {
+    const d = row.scheduledDate;
+    if (!d) return acc;
+    if (!acc[d]) acc[d] = [];
+    acc[d].push(row);
+    return acc;
+  }, {});
+  const monthDates = [...new Set([...Object.keys(monthByDate), ...Object.keys(monthHolByDate)])].sort();
   const today = todayCalendarDate();
 
   return (
@@ -261,7 +271,8 @@ export default function AttendanceDaily() {
           ) : (
             <div className="space-y-4">
               {monthDates.map((d) => {
-                const daySessions = monthByDate[d];
+                const daySessions = monthByDate[d] ?? [];
+                const dayHolSessions = monthHolByDate[d] ?? [];
                 const isToday = d === today;
                 return (
                   <div key={d}>
@@ -310,6 +321,32 @@ export default function AttendanceDaily() {
                           </li>
                         );
                       })}
+                      {dayHolSessions.map((hs) => (
+                        <li key={hs.sessionId}>
+                          <Link
+                            href={`/attendance/hol-session/${hs.sessionId}`}
+                            className="flex flex-col gap-1 px-4 py-3 hover:bg-purple-50 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div>
+                              <p className="flex flex-wrap items-center gap-2 font-medium text-zinc-900">
+                                {hs.programmeName}
+                                <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-900">
+                                  Holiday Programme
+                                </span>
+                              </p>
+                              {hs.tutorName && (
+                                <p className="text-sm text-zinc-500">{hs.tutorName}</p>
+                              )}
+                            </div>
+                            <div className="text-right text-sm">
+                              <p className="text-zinc-500">{formatHolTimeLabel(hs.timeLabel)}</p>
+                              <p className="mt-0.5 font-medium text-blue-600">
+                                {hs.newCount} new + {hs.existingCount} existing
+                              </p>
+                            </div>
+                          </Link>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 );
@@ -579,7 +616,7 @@ export default function AttendanceDaily() {
                   <p className="text-zinc-500">{formatHolTimeLabel(hs.timeLabel)}</p>
                   <p className="mt-0.5 font-medium text-blue-600">
                     {hs.newCount} new + {hs.existingCount} existing
-                    {hs.waivedCount > 0 && (
+                    {(hs.waivedCount ?? 0) > 0 && (
                       <span className="font-normal text-zinc-400"> · {hs.waivedCount} waived</span>
                     )}
                   </p>

@@ -58,6 +58,7 @@ export default function TrialsManager() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
   const [showConverted, setShowConverted] = useState(false);
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [convertForm, setConvertForm] = useState({
@@ -135,6 +136,7 @@ export default function TrialsManager() {
     }
 
     setForm(emptyForm);
+    setShowForm(false);
     await load();
     setSuccess(`Saved ${data.trial?.name ?? form.name} as a free trial lead.`);
   }
@@ -208,8 +210,17 @@ export default function TrialsManager() {
       </p>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-zinc-800">Register free trial</h2>
-        <form onSubmit={onRegister} className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-zinc-800">Register free trial</h2>
+          <button
+            type="button"
+            onClick={() => setShowForm((v) => !v)}
+            className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700"
+          >
+            {showForm ? "Cancel" : "+ Trial"}
+          </button>
+        </div>
+        {showForm && <form onSubmit={onRegister} className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-zinc-700">Name *</span>
             <input
@@ -313,7 +324,7 @@ export default function TrialsManager() {
           >
             {saving ? "Saving…" : "Add free trial"}
           </button>
-        </form>
+        </form>}
       </section>
 
       {success && (

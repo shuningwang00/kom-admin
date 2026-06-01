@@ -6,7 +6,7 @@ import {
   holidayProgrammeSessions,
   students,
 } from "@/lib/db/schema";
-import { asc, count, eq, inArray, min } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, lte, min } from "drizzle-orm";
 
 export type ProgrammeRow = typeof holidayProgrammes.$inferSelect;
 export type ProgrammeSessionRow = typeof holidayProgrammeSessions.$inferSelect;
@@ -198,4 +198,69 @@ export async function listSessionAttendance(
     .select()
     .from(holidayProgrammeAttendance)
     .where(eq(holidayProgrammeAttendance.sessionId, sessionId));
+}
+
+export type HolSessionForMonth = {
+  sessionId: string;
+  programmeId: string;
+  programmeName: string;
+  tutorName: string;
+  timeLabel: string;
+  scheduledDate: string;
+  newCount: number;
+  existingCount: number;
+};
+
+export async function listHolSessionsForMonth(yearMonth: string): Promise<HolSessionForMonth[]> {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const startDate = `${yearMonth}-01`;
+  const endDate = `${yearMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+
+  const db = getDb();
+  const sessionRows = await db
+    .select({ session: holidayProgrammeSessions, programme: holidayProgrammes })
+    .from(holidayProgrammeSessions)
+    .innerJoin(holidayProgrammes, eq(holidayProgrammeSessions.programmeId, holidayProgrammes.id))
+    .where(
+      and(
+        gte(holidayProgrammeSessions.scheduledDate, startDate),
+        lte(holidayProgrammeSessions.scheduledDate, endDate),
+        eq(holidayProgrammes.isActive, true),
+      ),
+    )
+    .orderBy(asc(holidayProgrammeSessions.scheduledDate));
+
+  if (sessionRows.length === 0) return [];
+
+  const programmeIds = [...new Set(sessionRows.map((r) => r.session.programmeId))];
+  const participantRows = await db
+    .select({
+      programmeId: holidayProgrammeParticipants.programmeId,
+      studentId: holidayProgrammeParticipants.studentId,
+    })
+    .from(holidayProgrammeParticipants)
+    .where(inArray(holidayProgrammeParticipants.programmeId, programmeIds));
+
+  const typeByProgramme = new Map<string, { newCount: number; existingCount: number }>();
+  for (const p of participantRows) {
+    if (!typeByProgramme.has(p.programmeId))
+      typeByProgramme.set(p.programmeId, { newCount: 0, existingCount: 0 });
+    const counts = typeByProgramme.get(p.programmeId)!;
+    if (p.studentId) counts.existingCount++;
+    else counts.newCount++;
+  }
+
+  return sessionRows.map(({ session, programme }) => {
+    const { newCount, existingCount } = typeByProgramme.get(session.programmeId) ?? { newCount: 0, existingCount: 0 };
+    return {
+      sessionId: session.id,
+      programmeId: session.programmeId,
+      programmeName: programme.name,
+      tutorName: session.tutorName,
+      timeLabel: session.timeLabel,
+      scheduledDate: session.scheduledDate,
+      newCount,
+      existingCount,
+    };
+  });
 }
