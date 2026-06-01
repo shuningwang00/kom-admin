@@ -5,8 +5,8 @@ import type { SessionUser } from "@/lib/auth/config";
 import { getTutorMatch, tutorCanAccessClass } from "@/lib/auth/user";
 import { getDb } from "@/lib/db/index";
 import { isEnrollmentActiveOnDate } from "@/lib/enrollments/eligibility";
-import { classSessions, classes, enrollments, students } from "@/lib/db/schema";
-import { and, asc, desc, eq, gte, isNull, lt, lte } from "drizzle-orm";
+import { classSessions, classes, enrollments, students, trialLeads } from "@/lib/db/schema";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte } from "drizzle-orm";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -14,22 +14,36 @@ async function activeEnrollmentClassIds(
   db: Db,
   sessionDate?: string,
 ): Promise<Set<string>> {
-  const rows = await db
-    .select({
-      classId: enrollments.classId,
-      enrollmentStartedAt: enrollments.startedAt,
-      trialAttendedAt: enrollments.trialAttendedAt,
-      enrollmentEndedAt: enrollments.endedAt,
-      pauseStartedAt: enrollments.pauseStartedAt,
-      pauseEndedAt: enrollments.pauseEndedAt,
-      studentStartDate: students.startDate,
-    })
-    .from(enrollments)
-    .innerJoin(students, eq(enrollments.studentId, students.id))
-    .where(isNull(students.archivedAt));
+  const [enrollmentRows, trialLeadRows] = await Promise.all([
+    db
+      .select({
+        classId: enrollments.classId,
+        enrollmentStartedAt: enrollments.startedAt,
+        trialAttendedAt: enrollments.trialAttendedAt,
+        enrollmentEndedAt: enrollments.endedAt,
+        pauseStartedAt: enrollments.pauseStartedAt,
+        pauseEndedAt: enrollments.pauseEndedAt,
+        studentStartDate: students.startDate,
+      })
+      .from(enrollments)
+      .innerJoin(students, eq(enrollments.studentId, students.id))
+      .where(isNull(students.archivedAt)),
+    sessionDate
+      ? db
+          .select({ classId: trialLeads.classId })
+          .from(trialLeads)
+          .where(
+            and(
+              eq(trialLeads.status, "active"),
+              eq(trialLeads.trialDate, sessionDate),
+              isNotNull(trialLeads.classId),
+            ),
+          )
+      : Promise.resolve([]),
+  ]);
 
   const classIds = new Set<string>();
-  for (const row of rows) {
+  for (const row of enrollmentRows) {
     if (
       sessionDate &&
       !isEnrollmentActiveOnDate({
@@ -45,6 +59,9 @@ async function activeEnrollmentClassIds(
       continue;
     }
     classIds.add(row.classId);
+  }
+  for (const row of trialLeadRows) {
+    if (row.classId) classIds.add(row.classId);
   }
   return classIds;
 }
@@ -67,7 +84,7 @@ export async function listSessionsForDate(date: string, user: SessionUser) {
       .where(
         and(
           eq(classSessions.scheduledDate, date),
-          eq(classSessions.status, "scheduled"),
+          inArray(classSessions.status, ["scheduled", "cancelled"]),
           eq(classes.isActive, true),
         ),
       )
@@ -172,6 +189,45 @@ export async function listTutorSessionsOverview(user: SessionUser) {
   return [...byClass.values()];
 }
 
+export async function listSessionsForMonth(yearMonth: string, user: SessionUser) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const startDate = formatCalendarDate(y, m, 1);
+  const lastDay = new Date(y, m, 0).getDate();
+  const endDate = formatCalendarDate(y, m, lastDay);
+
+  const db = getDb();
+  const enrolledClassIds = await activeEnrollmentClassIds(db);
+  const rows = withEnrolledStudentsOnly(
+    await db
+      .select({ session: classSessions, class: classes })
+      .from(classSessions)
+      .innerJoin(classes, eq(classSessions.classId, classes.id))
+      .where(
+        and(
+          gte(classSessions.scheduledDate, startDate),
+          lte(classSessions.scheduledDate, endDate),
+          inArray(classSessions.status, ["scheduled", "cancelled"]),
+          eq(classes.isActive, true),
+        ),
+      )
+      .orderBy(asc(classSessions.scheduledDate), asc(classes.time), asc(classes.label)),
+    enrolledClassIds,
+  );
+
+  let visible = rows;
+  if (user.role !== "owner" && user.role !== "staff") {
+    const match = await getTutorMatch(user);
+    visible = rows.filter(
+      (r) =>
+        tutorCanAccessClass(r.class.tutor, match) ||
+        tutorCanAccessClass(r.session.reliefTutor, match),
+    );
+  }
+
+  const withExpected = await attachExpectedAttendance(visible);
+  return await mergeConsolidatedSessionListRows(withExpected);
+}
+
 /** Past sessions (before `beforeDate`) where attendance still needs marking. */
 export async function listUnmarkedPastSessions(
   user: SessionUser,
@@ -188,7 +244,7 @@ export async function listUnmarkedPastSessions(
       .where(
         and(
           lt(classSessions.scheduledDate, beforeDate),
-          eq(classSessions.status, "scheduled"),
+          inArray(classSessions.status, ["scheduled", "cancelled"]),
           eq(classes.isActive, true),
         ),
       )

@@ -1,7 +1,10 @@
 import { writeAuditLog } from "@/lib/attendance/audit";
 import { loadSessionDetail } from "@/lib/attendance/session-detail";
+import { assertSessionNotCancelled } from "@/lib/attendance/cancel-session";
+import { sessionActiveExpectedTotal } from "@/lib/attendance/relief-tutor-session";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
+import { isReliefTutorNeeded } from "@/lib/tutors/constants";
 import { getDb } from "@/lib/db/index";
 import { classSessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -17,8 +20,19 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!detail) return jsonError("Session not found.", 404);
 
     const user = await assertCanMarkAttendance(detail.class.tutor);
+    assertSessionNotCancelled(detail.session.status);
     const body = (await request.json()) as { reliefTutor?: string | null };
     const reliefTutor = String(body.reliefTutor ?? "").trim();
+
+    if (
+      isReliefTutorNeeded(reliefTutor) &&
+      sessionActiveExpectedTotal(detail.expected) === 0
+    ) {
+      return jsonError(
+        "No students expected for this session — relief tutor is not required.",
+        400,
+      );
+    }
 
     const db = getDb();
     const before = { reliefTutor: detail.session.reliefTutor ?? "" };

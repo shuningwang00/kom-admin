@@ -3,7 +3,7 @@ import AttendanceDaily from "@/components/attendance-daily";
 
 export default function AttendancePage() {
   return (
-    <AppShell title="Attendance (daily)">
+    <AppShell title="Attendance">
       <AttendanceDaily />
     </AppShell>
   );

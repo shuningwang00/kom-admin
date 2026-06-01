@@ -11,10 +11,14 @@ export function MakeupCustomTutorSelect({
   regularTutor,
   reliefTutor,
   onReliefTutorChange,
+  hideLabel = false,
+  hideClassTutorOption = false,
 }: {
   regularTutor: string;
   reliefTutor: string;
   onReliefTutorChange: (relief: string) => void;
+  hideLabel?: boolean;
+  hideClassTutorOption?: boolean;
 }) {
   const [tutors, setTutors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +56,7 @@ export function MakeupCustomTutorSelect({
   return (
     <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
       <label className="block text-sm sm:col-span-2">
-        <span className="font-medium text-zinc-700">Tutor</span>
+        {!hideLabel && <span className="font-medium text-zinc-700">Tutor</span>}
         <select
           value={choice}
           disabled={loading}
@@ -64,12 +68,14 @@ export function MakeupCustomTutorSelect({
               emit(v, "");
             }
           }}
-          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+          className={`w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm${hideLabel ? "" : " mt-1"}`}
         >
           <option value="">
-            {regularTutor.trim()
-              ? `${regularTutor.trim()} (class tutor)`
-              : "— Class tutor —"}
+            {hideClassTutorOption
+              ? "— Select relief tutor —"
+              : regularTutor.trim()
+                ? `${regularTutor.trim()} (class tutor)`
+                : "— Class tutor —"}
           </option>
           {tutorOptionsExcludingRegular(tutors, regularTutor).map((name) => (
               <option key={name} value={name}>

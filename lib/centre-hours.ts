@@ -15,6 +15,15 @@ export function defaultSlotsForDate(isoDate: string): TimeSlot[] {
   return [{ start: "15:00", end: "20:00", label: "Weekday" }];
 }
 
+/** Default admin roster shift window for a calendar date. */
+export function defaultRosterShiftTimes(isoDate: string): {
+  startTime: string;
+  endTime: string;
+} {
+  const slot = defaultSlotsForDate(isoDate)[0];
+  return { startTime: slot.start, endTime: slot.end };
+}
+
 export function normalizeTime(t: string): string {
   const raw = t.trim();
   const m = raw.match(/^(\d{1,2}):(\d{2})$/);
@@ -52,6 +61,6 @@ export function suggestedAvailabilityMonth(): string {
   const day = now.getDate();
   const y = now.getFullYear();
   const m = now.getMonth();
-  const target = day >= 25 ? new Date(y, m + 2, 1) : new Date(y, m + 1, 1);
+  const target = day >= 20 ? new Date(y, m + 1, 1) : new Date(y, m, 1);
   return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
 }

@@ -11,11 +11,13 @@ import {
   siblingPayloadFromValue,
   type SiblingGroupValue,
 } from "@/components/sibling-group-picker";
+import { ContactFields } from "@/components/contact-fields";
 import {
   contactFilterValues,
   formatContactLine,
   primaryContactDisplay,
   secondaryContactDisplay,
+  type ContactType,
 } from "@/lib/contacts";
 import type { StudentRosterItem } from "@/lib/students/roster";
 import { rosterStatusBadgeClass } from "@/lib/students/roster-status";
@@ -66,11 +68,38 @@ function DetailField({
   );
 }
 
+type StudentEditForm = {
+  name: string;
+  primaryContactType: ContactType;
+  primaryContact: string;
+  secondaryContactType: ContactType | "";
+  secondaryContact: string;
+  school: string;
+  parentName: string;
+  startDate: string;
+  notes: string;
+};
+
+function studentToEditForm(s: StudentRosterItem): StudentEditForm {
+  return {
+    name: s.name,
+    primaryContactType: s.primaryContactType ?? "parent",
+    primaryContact: s.primaryContact ?? "",
+    secondaryContactType: s.secondaryContactType ?? "",
+    secondaryContact: s.secondaryContact ?? "",
+    school: s.school ?? "",
+    parentName: s.parentName ?? "",
+    startDate: s.startDate ?? "",
+    notes: s.notes ?? "",
+  };
+}
+
 export function StudentsRosterTable({
   students,
   allStudents,
   showArchived,
   onArchive,
+  onDeleteRequest,
   onSiblingSaved,
   onError,
   onSuccess,
@@ -79,6 +108,7 @@ export function StudentsRosterTable({
   allStudents: StudentRosterItem[];
   showArchived: boolean;
   onArchive: (id: string) => void;
+  onDeleteRequest: (id: string, name: string) => void;
   onSiblingSaved: () => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -86,6 +116,9 @@ export function StudentsRosterTable({
   const [columnFilters, setColumnFilters] =
     useState<ColumnFilters>(emptyColumnFilters);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<StudentEditForm | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [editingSiblingId, setEditingSiblingId] = useState<string | null>(null);
   const [editSiblingGroup, setEditSiblingGroup] =
     useState<SiblingGroupValue>(emptySiblingGroup);
@@ -150,15 +183,65 @@ export function StudentsRosterTable({
 
   const hasFilters = Object.values(columnFilters).some((v) => v !== null);
 
+  function clearStudentEdit() {
+    setEditingStudentId(null);
+    setEditForm(null);
+  }
+
+  function clearSiblingEdit() {
+    setEditingSiblingId(null);
+    setEditSiblingGroup(emptySiblingGroup);
+  }
+
   function toggleExpand(id: string) {
     setExpandedId((prev) => (prev === id ? null : id));
-    if (editingSiblingId && editingSiblingId !== id) {
-      setEditingSiblingId(null);
-      setEditSiblingGroup(emptySiblingGroup);
+    if (editingSiblingId && editingSiblingId !== id) clearSiblingEdit();
+    if (editingStudentId && editingStudentId !== id) clearStudentEdit();
+  }
+
+  function startEditStudent(s: StudentRosterItem) {
+    clearSiblingEdit();
+    setEditingStudentId(s.id);
+    setEditForm(studentToEditForm(s));
+    setExpandedId(s.id);
+  }
+
+  async function saveEditStudent(studentId: string) {
+    if (!editForm) return;
+    const name = editForm.name.trim();
+    if (!name) {
+      onError("Name is required.");
+      return;
     }
+    setSavingEdit(true);
+    const res = await fetch(`/api/students/${studentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        primaryContact: editForm.primaryContact,
+        primaryContactType: editForm.primaryContactType,
+        secondaryContact: editForm.secondaryContact,
+        secondaryContactType: editForm.secondaryContactType || null,
+        school: editForm.school,
+        parentName: editForm.parentName,
+        startDate: editForm.startDate || null,
+        notes: editForm.notes,
+      }),
+    });
+    setSavingEdit(false);
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      onError(data.error ?? "Could not save student.");
+      return;
+    }
+    clearStudentEdit();
+    onSiblingSaved();
+    onSuccess(`Saved ${name}.`);
   }
 
   function startEditSiblings(s: StudentRosterItem) {
+    clearStudentEdit();
     setEditingSiblingId(s.id);
     setExpandedId(s.id);
     if (s.billingGroupId) {
@@ -292,6 +375,153 @@ export function StudentsRosterTable({
                   {expanded && (
                     <tr className="border-b border-zinc-100 bg-zinc-50/80">
                       <td colSpan={8} className="px-4 py-4">
+                        {editingStudentId === s.id && editForm ? (
+                          <form
+                            className="grid gap-3 sm:grid-cols-2"
+                            onClick={(e) => e.stopPropagation()}
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              void saveEditStudent(s.id);
+                            }}
+                          >
+                            <label className="block text-sm sm:col-span-2">
+                              <span className="font-medium text-zinc-700">
+                                Name *
+                              </span>
+                              <input
+                                required
+                                value={editForm.name}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f ? { ...f, name: e.target.value } : f,
+                                  )
+                                }
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <ContactFields
+                              prefix="Primary"
+                              typeLabel="Primary contact"
+                              typeValue={editForm.primaryContactType}
+                              numberValue={editForm.primaryContact}
+                              onTypeChange={(v) =>
+                                setEditForm((f) =>
+                                  f
+                                    ? {
+                                        ...f,
+                                        primaryContactType: (v ||
+                                          "parent") as ContactType,
+                                      }
+                                    : f,
+                                )
+                              }
+                              onNumberChange={(v) =>
+                                setEditForm((f) =>
+                                  f ? { ...f, primaryContact: v } : f,
+                                )
+                              }
+                              required
+                            />
+                            <ContactFields
+                              prefix="Secondary"
+                              typeLabel="Secondary contact"
+                              typeValue={editForm.secondaryContactType}
+                              numberValue={editForm.secondaryContact}
+                              onTypeChange={(v) =>
+                                setEditForm((f) =>
+                                  f
+                                    ? { ...f, secondaryContactType: v }
+                                    : f,
+                                )
+                              }
+                              onNumberChange={(v) =>
+                                setEditForm((f) =>
+                                  f ? { ...f, secondaryContact: v } : f,
+                                )
+                              }
+                            />
+                            <label className="block text-sm">
+                              <span className="font-medium text-zinc-700">
+                                School
+                              </span>
+                              <input
+                                value={editForm.school}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f ? { ...f, school: e.target.value } : f,
+                                  )
+                                }
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <label className="block text-sm">
+                              <span className="font-medium text-zinc-700">
+                                Parent name (record)
+                              </span>
+                              <input
+                                value={editForm.parentName}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f
+                                      ? { ...f, parentName: e.target.value }
+                                      : f,
+                                  )
+                                }
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <label className="block text-sm">
+                              <span className="font-medium text-zinc-700">
+                                Start date
+                              </span>
+                              <input
+                                type="date"
+                                value={editForm.startDate}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f ? { ...f, startDate: e.target.value } : f,
+                                  )
+                                }
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <label className="block text-sm sm:col-span-2">
+                              <span className="font-medium text-zinc-700">
+                                Notes
+                              </span>
+                              <textarea
+                                value={editForm.notes}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f ? { ...f, notes: e.target.value } : f,
+                                  )
+                                }
+                                rows={2}
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <p className="text-xs text-zinc-500 sm:col-span-2">
+                              Level and classes come from enrollments — change
+                              class assignments under Classes.
+                            </p>
+                            <div className="flex gap-2 sm:col-span-2">
+                              <button
+                                type="submit"
+                                disabled={savingEdit}
+                                className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                              >
+                                {savingEdit ? "Saving…" : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={clearStudentEdit}
+                                className="text-sm text-zinc-500"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
                         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                           <DetailField label="Name" value={s.name} />
                           <DetailField label="School" value={s.school} />
@@ -329,6 +559,7 @@ export function StudentsRosterTable({
                             }
                           />
                         </dl>
+                        )}
 
                         <div className="mt-4">
                           <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-600">
@@ -361,8 +592,18 @@ export function StudentsRosterTable({
                           )}
                         </div>
 
-                        {!showArchived && !s.archivedAt && (
+                        {!showArchived && !s.archivedAt && editingStudentId !== s.id && (
                           <div className="mt-4 flex flex-wrap gap-3 border-t border-zinc-200 pt-4">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditStudent(s);
+                              }}
+                              className="text-sm font-medium text-orange-700 hover:underline"
+                            >
+                              Edit student
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -382,6 +623,16 @@ export function StudentsRosterTable({
                               className="text-sm text-zinc-500 hover:text-red-600"
                             >
                               Archive student
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteRequest(s.id, s.name);
+                              }}
+                              className="text-sm text-red-600 hover:text-red-800"
+                            >
+                              Delete student…
                             </button>
                           </div>
                         )}

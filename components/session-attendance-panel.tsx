@@ -10,6 +10,7 @@ import {
   SESSION_MARKING_STATUSES,
   type AttendanceStatus,
 } from "@/lib/attendance/status";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ReliefTutorField } from "@/components/relief-tutor-field";
 import {
   formatScheduledMakeupMissedLine,
@@ -19,6 +20,8 @@ import { MakeupCustomTutorSelect } from "@/components/makeup-custom-tutor-select
 import { MakeupReminderWhatsAppButton } from "@/components/makeup-reminder-whatsapp";
 import type { ContactType } from "@/lib/contacts";
 import { formatMakeupNoteFromIso } from "@/lib/attendance/status";
+import { sessionActiveExpectedTotal } from "@/lib/attendance/relief-tutor-session";
+import type { SessionExpectedCounts } from "@/lib/attendance/session-expected-labels";
 import { normalizeReliefForStorage } from "@/lib/tutors/relief-form";
 import { MAKEUP_CUSTOM_VALUE } from "@/lib/attendance/makeup-constants";
 import type { MakeupClassOption } from "@/lib/attendance/makeup-options";
@@ -29,6 +32,7 @@ import {
 import { formatClassTypeLabel } from "@/lib/classes/display-label";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type StudentRow = {
@@ -101,8 +105,10 @@ type SessionDetail = {
     id: string;
     scheduledDate: string;
     timeLabel: string;
+    status: "scheduled" | "cancelled";
     rescheduleNote: string;
     reliefTutor: string;
+    expected?: SessionExpectedCounts;
   };
   class: { id: string; label: string; level: string; tutor: string; time: string };
   students: StudentRow[];
@@ -117,6 +123,7 @@ export default function SessionAttendancePanel({
 }: {
   sessionId: string;
 }) {
+  const router = useRouter();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState<Record<string, AttendanceStatus | undefined>>(
     {},
@@ -138,6 +145,12 @@ export default function SessionAttendancePanel({
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [rescheduleNote, setRescheduleNote] = useState("");
+  const [rescheduleError, setRescheduleError] = useState("");
+  const [rescheduleSuccess, setRescheduleSuccess] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [addableStudents, setAddableStudents] = useState<AddableStudent[]>([]);
   const [addableLevelLabel, setAddableLevelLabel] = useState("");
   const [addStudentId, setAddStudentId] = useState("");
@@ -517,6 +530,10 @@ export default function SessionAttendancePanel({
   async function rescheduleSession(e: React.FormEvent) {
     e.preventDefault();
     if (!rescheduleDate || !rescheduleTime) return;
+    if (!rescheduleNote.trim()) {
+      setRescheduleError("Please indicate reason for rescheduling.");
+      return;
+    }
     setSaving(true);
     const res = await fetch(`/api/sessions/${sessionId}/reschedule`, {
       method: "POST",
@@ -530,11 +547,17 @@ export default function SessionAttendancePanel({
     setSaving(false);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
-      setError(data.error ?? "Reschedule failed");
+      setRescheduleError(data.error ?? "Reschedule failed");
       return;
     }
-    alert("Session rescheduled.");
-    load();
+    const data = (await res.json()) as { newSessionId?: string | null };
+    if (data.newSessionId) {
+      router.push(`/attendance/session/${data.newSessionId}`);
+      return;
+    }
+    setRescheduleError("");
+    await load();
+    setRescheduleSuccess("Session rescheduled.");
   }
 
   if (error && !detail) {
@@ -572,6 +595,35 @@ export default function SessionAttendancePanel({
     setAddStudentId("");
   }
 
+  const isCancelledSession = detail.session.status === "cancelled";
+
+  async function cancelOrRestoreSession(restore: boolean) {
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/sessions/${sessionId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        restore ? { restore: true } : { note: cancelNote.trim() || undefined },
+      ),
+    });
+    setSaving(false);
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not update session.");
+      return;
+    }
+    setShowCancelConfirm(false);
+    setShowRestoreConfirm(false);
+    setCancelNote("");
+    setSuccess(
+      restore
+        ? "Session restored. Students marked from cancellation were reset to unmarked."
+        : "Class cancelled. Enrolled students were set to Needs M/U.",
+    );
+    await load();
+  }
+
   async function saveReliefTutor(reliefTutor: string) {
     const res = await fetch(`/api/sessions/${sessionId}/relief-tutor`, {
       method: "PATCH",
@@ -588,6 +640,13 @@ export default function SessionAttendancePanel({
 
   return (
     <div className="space-y-6">
+      <button
+        type="button"
+        onClick={() => router.back()}
+        className="text-sm text-orange-700 hover:underline"
+      >
+        ← Back
+      </button>
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <p className="text-lg font-semibold text-zinc-900">
           {formatClassTypeLabel(detail.class)}
@@ -595,16 +654,21 @@ export default function SessionAttendancePanel({
         <p className="text-sm text-zinc-600">
           {detail.session.scheduledDate} · {detail.session.timeLabel || detail.class.time}{" "}
           · {tutorLine.primary}
+          {isCancelledSession && (
+            <span className="ml-2 font-semibold text-zinc-500">· Cancelled</span>
+          )}
         </p>
         {tutorLine.subtitle && (
           <p className="text-xs font-medium text-sky-800">{tutorLine.subtitle}</p>
         )}
-        <Link
-          href={detail.role === "tutor" ? "/attendance/tutor" : "/attendance"}
-          className="mt-2 inline-block text-sm text-orange-700 hover:underline"
-        >
-          ← Back
-        </Link>
+        {detail.session.rescheduleNote && (
+          <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-amber-800">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+              {isCancelledSession ? "Cancelled" : "Rescheduled"}
+            </span>
+            {detail.session.rescheduleNote}
+          </p>
+        )}
       </div>
 
       {success && (
@@ -615,146 +679,85 @@ export default function SessionAttendancePanel({
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      {isCancelledSession && (
+        <p className="rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-sm text-zinc-800">
+          This class was cancelled. Enrolled students are marked{" "}
+          <strong>Needs M/U</strong> for a makeup from this session. Schedule
+          makeups below or restore the session if it will run after all.
+        </p>
+      )}
+
       <ReliefTutorField
         regularTutor={detail.class.tutor}
         reliefTutor={detail.session.reliefTutor ?? ""}
         onSave={saveReliefTutor}
-        disabled={saving}
+        disabled={saving || isCancelledSession}
+        allowReliefNeededOption={
+          !isCancelledSession &&
+          sessionActiveExpectedTotal(
+            detail.session.expected ?? { regular: 0, trial: 0, makeup: 0 },
+          ) > 0
+        }
       />
 
-      {(detail.trialLeads?.length ?? 0) > 0 && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/30 shadow-sm">
-          <div className="border-b border-blue-200/80 px-4 py-3">
-            <h2 className="text-sm font-semibold text-blue-950">
-              Free trial (not enrolled yet)
-            </h2>
-            <p className="mt-0.5 text-xs text-blue-900">
-              Registered on the Free trials page. Convert to a student after they
-              sign up.
-            </p>
-            {(detail.trialLeads ?? []).some(
-              (r) => !r.attendanceSaved || editingTrialIds.has(r.trialLeadId),
-            ) && (
-              <button
-                type="button"
-                onClick={saveAttendance}
-                disabled={saving}
-                className="mt-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Save trial attendance"}
-              </button>
-            )}
-          </div>
-          <ul className="divide-y divide-blue-100">
-            {(detail.trialLeads ?? []).map((row) => {
-              const needsMark =
-                !row.attendanceSaved || editingTrialIds.has(row.trialLeadId);
-              return (
-                <li key={row.trialLeadId} className="px-4 py-3">
-                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium text-zinc-900">
-                    <span>{row.name}</span>
-                    <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-900">
-                      Free trial
-                    </span>
-                  </p>
-                  {needsMark ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {SESSION_MARKING_STATUSES.map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          onClick={() =>
-                            setTrialDraft((d) => ({
-                              ...d,
-                              [row.trialLeadId]: status,
-                            }))
-                          }
-                          className={statusButtonClassName(
-                            status,
-                            trialDraft[row.trialLeadId] === status,
-                          )}
-                        >
-                          {statusDisplayLabel(status)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-sm text-green-800">
-                      Saved:{" "}
-                      {statusDisplayLabel(
-                        normalizeSessionMarkingStatus(row.status),
-                      )}
-                      <button
-                        type="button"
-                        className="ml-2 text-xs text-zinc-600 underline"
-                        onClick={() => {
-                          setEditingTrialIds((prev) =>
-                            new Set(prev).add(row.trialLeadId),
-                          );
-                          setTrialDraft((d) => ({
-                            ...d,
-                            [row.trialLeadId]: normalizeSessionMarkingStatus(
-                              row.status,
-                            ),
-                          }));
-                        }}
-                      >
-                        Edit
-                      </button>
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {detail.students.length === 0 ? (
+      {detail.students.length === 0 && !(detail.trialLeads?.length) ? (
         <p className="rounded-xl border border-zinc-200 bg-white px-4 py-6 text-sm text-zinc-600 shadow-sm">
           No enrolled students to mark for this session.
         </p>
       ) : (
         (() => {
-          const allSaved = isAttendanceFullySaved(detail.students);
-          const pendingRows = detail.students.filter(
-            (row) => !row.attendanceSaved,
-          );
+          const trialLeads = detail.trialLeads ?? [];
+          const allStudentsSaved = detail.students.length === 0 || isAttendanceFullySaved(detail.students);
+          const allTrialSaved = trialLeads.length === 0 || (trialLeads.every((r) => r.attendanceSaved) && editingTrialIds.size === 0);
+          const allSaved = allStudentsSaved && allTrialSaved && editingStudentIds.size === 0;
+          const pendingStudents = detail.students.filter((row) => !row.attendanceSaved);
+          const pendingTrials = trialLeads.filter((row) => !row.attendanceSaved);
+          const totalPending = pendingStudents.length + pendingTrials.length;
           const sortedStudents = [...detail.students].sort((a, b) => {
             const aPending = !a.attendanceSaved ? 0 : 1;
             const bPending = !b.attendanceSaved ? 0 : 1;
             if (aPending !== bPending) return aPending - bPending;
             return a.student.name.localeCompare(b.student.name);
           });
+          const hasPendingSave =
+            studentsNeedingSave(detail.students, editingStudentIds).length > 0 ||
+            trialLeads.some((r) => !r.attendanceSaved || editingTrialIds.has(r.trialLeadId));
 
           return (
             <div
               className={`rounded-xl border bg-white shadow-sm ${
-                allSaved && editingStudentIds.size === 0
+                allSaved
                   ? "border-green-200"
                   : "border-zinc-200"
               }`}
             >
               <div
                 className={`flex flex-wrap items-start justify-between gap-2 border-b px-4 py-3 ${
-                  allSaved && editingStudentIds.size === 0
+                  allSaved
                     ? "border-green-200/80 bg-green-50/40"
                     : "border-zinc-100"
                 }`}
               >
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold text-zinc-900">
-                    {allSaved && editingStudentIds.size === 0
-                      ? "Attendance saved"
-                      : "Attendance"}
+                    {isCancelledSession
+                      ? "Cancelled — Needs M/U"
+                      : allSaved
+                        ? "Attendance saved"
+                        : "Attendance"}
                   </h2>
-                  {allSaved && editingStudentIds.size === 0 ? (
+                  {isCancelledSession ? (
+                    <p className="mt-0.5 text-xs text-zinc-600">
+                      No attendance to mark. Students need a makeup from this
+                      cancelled session.
+                    </p>
+                  ) : allSaved ? (
                     <p className="mt-0.5 text-xs text-green-800">
                       All students saved. Use Edit on a row to change a status.
                     </p>
-                  ) : pendingRows.length > 0 ? (
+                  ) : totalPending > 0 ? (
                     <p className="mt-0.5 text-xs text-amber-900">
-                      {pendingRows.length} still to mark. Saved students show
+                      {totalPending} still to mark. Saved students show
                       their status — use Edit to change.
                     </p>
                   ) : (
@@ -763,8 +766,7 @@ export default function SessionAttendancePanel({
                     </p>
                   )}
                 </div>
-                {studentsNeedingSave(detail.students, editingStudentIds)
-                  .length > 0 && (
+                {!isCancelledSession && hasPendingSave && (
                   <button
                     type="button"
                     onClick={saveAttendance}
@@ -776,6 +778,85 @@ export default function SessionAttendancePanel({
                 )}
               </div>
               <ul className="divide-y divide-zinc-100">
+                {trialLeads.map((row) => {
+                  const isSaved = row.attendanceSaved;
+                  const isExpanded = editingTrialIds.has(row.trialLeadId);
+                  const needsMark = !isSaved;
+                  return (
+                    <li
+                      key={row.trialLeadId}
+                      className={`px-4 py-3 ${
+                        needsMark
+                          ? "bg-amber-50/25"
+                          : isExpanded
+                            ? "bg-zinc-50/80"
+                            : "bg-white"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium text-zinc-900">
+                            <span>{row.name}</span>
+                            {needsMark && (
+                              <span className="text-xs font-normal text-amber-900">To mark</span>
+                            )}
+                            <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-900">
+                              Free trial
+                            </span>
+                          </p>
+                        </div>
+                        {isSaved && (
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <span className={statusButtonClassName(normalizeSessionMarkingStatus(row.status), true)}>
+                              {statusDisplayLabel(normalizeSessionMarkingStatus(row.status))}
+                            </span>
+                            {!isCancelledSession && (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() =>
+                                  isExpanded
+                                    ? (setEditingTrialIds((prev) => { const n = new Set(prev); n.delete(row.trialLeadId); return n; }))
+                                    : (setEditingTrialIds((prev) => new Set(prev).add(row.trialLeadId)),
+                                       setTrialDraft((d) => ({ ...d, [row.trialLeadId]: normalizeSessionMarkingStatus(row.status) })))
+                                }
+                                className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                              >
+                                {isExpanded ? "Close" : "Edit"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {!isCancelledSession && (needsMark || isExpanded) && (
+                        <div className={isSaved ? "mt-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" : "mt-2"}>
+                          <div className="flex flex-wrap gap-1">
+                            {SESSION_MARKING_STATUSES.map((status) => (
+                              <button
+                                key={status}
+                                type="button"
+                                onClick={() => setTrialDraft((d) => ({ ...d, [row.trialLeadId]: status }))}
+                                className={statusButtonClassName(status, trialDraft[row.trialLeadId] === status)}
+                              >
+                                {statusDisplayLabel(status)}
+                              </button>
+                            ))}
+                          </div>
+                          {isSaved && isExpanded && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => setEditingTrialIds((prev) => { const n = new Set(prev); n.delete(row.trialLeadId); return n; })}
+                              className="mt-2 text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
                 {sortedStudents.map((row) => {
                   const isSaved = row.attendanceSaved;
                   const isExpanded = editingStudentIds.has(row.student.id);
@@ -817,7 +898,8 @@ export default function SessionAttendancePanel({
                               </span>
                             )}
                           </p>
-                          {row.makeupDisplayNote && isMakeupStudent(row) && (
+                          {row.makeupDisplayNote &&
+                            (isMakeupStudent(row) || isCancelledSession) && (
                             <p className="mt-0.5 text-xs text-amber-800">
                               {row.makeupDisplayNote}
                             </p>
@@ -838,6 +920,7 @@ export default function SessionAttendancePanel({
                                 detail.session.scheduledDate,
                               )}
                             </span>
+                            {!isCancelledSession && (
                             <button
                               type="button"
                               disabled={saving}
@@ -851,10 +934,11 @@ export default function SessionAttendancePanel({
                             >
                               {isExpanded ? "Close" : "Edit"}
                             </button>
+                            )}
                           </div>
                         )}
                       </div>
-                      {(needsMark || isExpanded) && (
+                      {!isCancelledSession && (needsMark || isExpanded) && (
                         <div
                           className={
                             isSaved
@@ -1016,66 +1100,6 @@ export default function SessionAttendancePanel({
         </div>
       )}
 
-      <form
-        onSubmit={rescheduleSession}
-        className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
-      >
-        <h2 className="text-sm font-semibold text-zinc-800">
-          Reschedule this class session
-        </h2>
-        <p className="mt-1 text-xs text-zinc-500">
-          Moves this session for all students (e.g. whole class from 2 Jun → 5 Jun).
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700">New date</span>
-            <input
-              type="date"
-              value={rescheduleDate}
-              onChange={(e) => setRescheduleDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-              required
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="font-medium text-zinc-700">
-              Time slot <span className="font-normal text-zinc-500">(1h 45min)</span>
-            </span>
-            <select
-              value={rescheduleTime}
-              onChange={(e) => setRescheduleTime(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
-              required
-            >
-              <option value="" disabled>
-                Select time
-              </option>
-              {timeSlotOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-zinc-700">Note (optional)</span>
-            <input
-              value={rescheduleNote}
-              onChange={(e) => setRescheduleNote(e.target.value)}
-              placeholder="e.g. moved for PH holiday"
-              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          className="mt-3 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-        >
-          Reschedule session
-        </button>
-      </form>
-
       {(detail.role === "owner" || detail.role === "staff") && (
         <>
           <form
@@ -1193,6 +1217,169 @@ export default function SessionAttendancePanel({
         </form>
         </>
       )}
+
+      {!isCancelledSession && (
+      <form
+        onSubmit={rescheduleSession}
+        className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+      >
+        <h2 className="text-sm font-semibold text-zinc-800">
+          Reschedule this class session
+        </h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Moves this session for all students (e.g. whole class from 2 Jun → 5 Jun).
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">New date</span>
+            <input
+              type="date"
+              value={rescheduleDate}
+              onChange={(e) => setRescheduleDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">
+              Time slot <span className="font-normal text-zinc-500">(1h 45min)</span>
+            </span>
+            <select
+              value={rescheduleTime}
+              onChange={(e) => setRescheduleTime(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+              required
+            >
+              <option value="" disabled>
+                Select time
+              </option>
+              {timeSlotOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-zinc-700">Note</span>
+            <input
+              value={rescheduleNote}
+              onChange={(e) => setRescheduleNote(e.target.value)}
+              placeholder="e.g. moved for PH holiday"
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+        <button
+          type="submit"
+          disabled={saving}
+          className="mt-3 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+        >
+          Reschedule session
+        </button>
+        {rescheduleError && (
+          <p className="mt-2 text-sm text-red-600">{rescheduleError}</p>
+        )}
+        {rescheduleSuccess && (
+          <p className="mt-2 text-sm font-medium text-green-700">{rescheduleSuccess}</p>
+        )}
+      </form>
+      )}
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-zinc-800">
+          {isCancelledSession
+            ? "Restore class session"
+            : "Cancel class session (only if rescheduling is not an option)"}
+        </h2>
+        {isCancelledSession ? (
+          <>
+            <p className="mt-1 text-xs text-zinc-500">
+              Puts the session back on the schedule and clears Needs M/U marks
+              that were set only because of cancellation.
+            </p>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setShowRestoreConfirm(true)}
+              className="mt-3 rounded-lg border border-zinc-400 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Restore session
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-zinc-500">
+              If the class can be moved to another date, use Reschedule above
+              instead. Cancels this lesson for everyone enrolled. Each student
+              is marked Needs M/U with a note that the makeup is from a cancelled
+              session.
+            </p>
+            <div className="mt-3 flex items-end gap-2">
+              <label className="block flex-1 text-sm">
+                <span className="font-medium text-zinc-700">Reason</span>
+                <input
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value)}
+                  placeholder="e.g. centre closed, tutor unwell"
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  if (!cancelNote.trim()) {
+                    setCancelError("Please indicate reason for cancellation.");
+                    return;
+                  }
+                  setCancelError("");
+                  setShowCancelConfirm(true);
+                }}
+                className="shrink-0 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+              >
+                Cancel class
+              </button>
+            </div>
+            {cancelError && (
+              <p className="mt-2 text-sm text-red-600">{cancelError}</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Cancel this class?"
+        destructive
+        confirmLabel="Cancel class"
+        message={
+          <>
+            <p>
+              This cancels the lesson on{" "}
+              <strong>{detail.session.scheduledDate}</strong> for all enrolled
+              students. Each affected student (except waived) will be marked{" "}
+              <strong>Needs M/U</strong> with a note that the makeup is from
+              this cancelled session.
+            </p>
+            <p className="text-zinc-500">
+              To end one student&apos;s enrollment only, use Enrollments — do
+              not cancel the whole class.
+            </p>
+          </>
+        }
+        onConfirm={() => void cancelOrRestoreSession(false)}
+        onCancel={() => setShowCancelConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showRestoreConfirm}
+        title="Restore this session?"
+        confirmLabel="Restore session"
+        message="Put this class back on the schedule and clear Needs M/U marks that were set automatically when the class was cancelled."
+        onConfirm={() => void cancelOrRestoreSession(true)}
+        onCancel={() => setShowRestoreConfirm(false)}
+      />
     </div>
   );
 }

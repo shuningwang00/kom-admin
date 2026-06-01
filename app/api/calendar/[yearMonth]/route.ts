@@ -1,5 +1,6 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { requireEffectiveUser } from "@/lib/auth/access";
+import { isOwner, isReliefTutor, requireEffectiveUser } from "@/lib/auth/access";
+import { getTutorMatch } from "@/lib/auth/user";
 import { loadCalendarMonth } from "@/lib/calendar/month-data";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,18 @@ export async function GET(_request: Request, { params }: Params) {
     if (!user) return jsonError("Unauthorized", 401);
 
     const { yearMonth } = await params;
-    const data = await loadCalendarMonth(yearMonth);
-    return jsonOk(data);
+    const owner = isOwner(user);
+    const reliefOnly = isReliefTutor(user);
+    const tutorMatch = reliefOnly ? await getTutorMatch(user) : "";
+    const data = await loadCalendarMonth(yearMonth, {
+      includeDraftShifts: owner,
+      tutorMatch: tutorMatch || undefined,
+    });
+    return jsonOk({
+      ...data,
+      canManageRoster: owner,
+      scopedToOwnClasses: reliefOnly,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     return jsonError(message, message === "Unauthorized" ? 401 : 500);

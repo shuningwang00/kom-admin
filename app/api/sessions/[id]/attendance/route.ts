@@ -6,6 +6,7 @@ import {
 } from "@/lib/attendance/session-detail";
 import { updateTrialLeadAttendance } from "@/lib/attendance/trial-lead-attendance";
 import { jsonError, jsonOk } from "@/lib/api/json";
+import { assertSessionNotCancelled } from "@/lib/attendance/cancel-session";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!detail) return jsonError("Session not found.", 404);
 
     const user = await assertCanMarkAttendance(detail.class.tutor);
+    assertSessionNotCancelled(detail.session.status);
     const body = (await request.json()) as {
       updates?: Array<{
         studentId: string;

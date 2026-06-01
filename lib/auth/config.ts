@@ -15,10 +15,10 @@ export function isMasterAdminEmail(email: string): boolean {
   return isOwnerEmail(email);
 }
 
-/** owner = you · staff = office admin · tutor = teacher */
-export type UserRole = "owner" | "staff" | "tutor";
+/** owner = you · staff = office admin · tutor = teacher · relief_tutor = cover-only */
+export type UserRole = "owner" | "staff" | "tutor" | "relief_tutor";
 
-export type AllowlistRole = "staff" | "tutor" | "staff_tutor";
+export type AllowlistRole = "staff" | "tutor" | "staff_tutor" | "relief_tutor";
 
 export type SessionUser = {
   email: string;

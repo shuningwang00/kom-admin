@@ -1,9 +1,12 @@
 import { writeAuditLog } from "@/lib/attendance/audit";
 import { loadSessionDetail } from "@/lib/attendance/session-detail";
 import { jsonError, jsonOk } from "@/lib/api/json";
+import { assertSessionNotCancelled } from "@/lib/attendance/cancel-session";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
+import { dbErrorMessage } from "@/lib/db/query-error";
 import { getDb } from "@/lib/db/index";
 import { classSessions } from "@/lib/db/schema";
+import { assertRescheduleDateAvailable } from "@/lib/scheduling/reschedule-session";
 import {
   isWithinCentreHours,
   normalizeTimeLabel,
@@ -22,6 +25,7 @@ export async function POST(request: Request, { params }: Params) {
     if (!detail) return jsonError("Session not found.", 404);
 
     const user = await assertCanMarkAttendance(detail.class.tutor);
+    assertSessionNotCancelled(detail.session.status);
     const body = (await request.json()) as {
       newDate?: string;
       timeLabel?: string;
@@ -33,10 +37,7 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const db = getDb();
-    const before = {
-      scheduledDate: detail.session.scheduledDate,
-      timeLabel: detail.session.timeLabel,
-    };
+    const originalDate = detail.session.scheduledDate;
 
     const rawTime = body.timeLabel?.trim() || detail.session.timeLabel;
     const timeLabel = resolveRescheduleTimeLabel(
@@ -50,15 +51,53 @@ export async function POST(request: Request, { params }: Params) {
       return jsonError("Time must be within centre hours (9am–8pm).");
     }
 
-    const [updated] = await db
+    if (newDate !== originalDate) {
+      await assertRescheduleDateAvailable(db, detail.class.id, id, newDate, timeLabel);
+    }
+
+    const rescheduleNote = body.note?.trim() || "";
+
+    if (newDate === originalDate) {
+      // Only time changed — update in place
+      const [updated] = await db
+        .update(classSessions)
+        .set({
+          timeLabel,
+          rescheduleNote,
+          updatedAt: new Date(),
+        })
+        .where(eq(classSessions.id, id))
+        .returning();
+
+      if (!updated) return jsonError("Session not found.", 404);
+
+      await writeAuditLog({
+        actor: user,
+        action: "reschedule_session",
+        entityType: "class_session",
+        entityId: id,
+        before: { scheduledDate: originalDate, timeLabel: detail.session.timeLabel },
+        after: { scheduledDate: newDate, timeLabel: updated.timeLabel, note: updated.rescheduleNote },
+      });
+
+      return jsonOk({ session: updated, newSessionId: null });
+    }
+
+    // Date changed: mark original slot as tombstone, create new session at new date
+    await db
       .update(classSessions)
-      .set({
+      .set({ status: "rescheduled_away", updatedAt: new Date() })
+      .where(eq(classSessions.id, id));
+
+    const [newSession] = await db
+      .insert(classSessions)
+      .values({
+        classId: detail.class.id,
         scheduledDate: newDate,
         timeLabel,
-        rescheduleNote: body.note?.trim() || detail.session.rescheduleNote,
-        updatedAt: new Date(),
+        rescheduleNote,
+        reliefTutor: detail.session.reliefTutor ?? "",
       })
-      .where(eq(classSessions.id, id))
       .returning();
 
     await writeAuditLog({
@@ -66,17 +105,21 @@ export async function POST(request: Request, { params }: Params) {
       action: "reschedule_session",
       entityType: "class_session",
       entityId: id,
-      before,
-      after: {
-        scheduledDate: updated.scheduledDate,
-        timeLabel: updated.timeLabel,
-        note: updated.rescheduleNote,
-      },
+      before: { scheduledDate: originalDate, timeLabel: detail.session.timeLabel },
+      after: { scheduledDate: newDate, timeLabel, note: rescheduleNote, newSessionId: newSession.id },
     });
 
-    return jsonOk({ session: updated });
+    return jsonOk({ session: newSession, newSessionId: newSession.id });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed";
-    return jsonError(message, message.includes("access") ? 403 : 500);
+    const message = dbErrorMessage(err, "Could not reschedule session.");
+    const status = message.includes("access")
+      ? 403
+      : message.includes("already has a session") ||
+          message.includes("Pick a valid") ||
+          message.includes("centre hours") ||
+          message.includes("newDate")
+        ? 400
+        : 500;
+    return jsonError(message, status);
   }
 }

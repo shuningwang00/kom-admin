@@ -7,6 +7,7 @@ import { assignStudentBillingGroup } from "@/lib/billing-groups/resolve";
 import { getDb } from "@/lib/db/index";
 import { billingGroups, students } from "@/lib/db/schema";
 import { contactFieldsFromBody } from "@/lib/students/contact-fields";
+import { deleteStudentPermanently } from "@/lib/students/delete";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -116,6 +117,24 @@ export async function PATCH(request: Request, { params }: Params) {
     const message = err instanceof Error ? err.message : "Failed";
     const status =
       message === "Unauthorized" ? 401 : message.includes("cannot") ? 403 : 500;
+    return jsonError(message, status);
+  }
+}
+
+export async function DELETE(_request: Request, { params }: Params) {
+  try {
+    await assertCanManageStudents();
+    const { id } = await params;
+    const summary = await deleteStudentPermanently(id);
+    return jsonOk({ deleted: true, ...summary });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed";
+    const status =
+      message === "Unauthorized"
+        ? 401
+        : message === "Student not found."
+          ? 404
+          : 500;
     return jsonError(message, status);
   }
 }

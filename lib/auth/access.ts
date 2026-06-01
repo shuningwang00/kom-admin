@@ -17,6 +17,15 @@ export function isTutor(user: SessionUser): boolean {
   return user.role === "tutor";
 }
 
+export function isReliefTutor(user: SessionUser): boolean {
+  return user.role === "relief_tutor";
+}
+
+/** Regular or relief tutor — class-scoped attendance, not full staff. */
+export function isTutorLike(user: SessionUser): boolean {
+  return user.role === "tutor" || user.role === "relief_tutor";
+}
+
 /** Owner or office staff — all classes, billing, attendance. */
 export function hasStaffPrivileges(user: SessionUser): boolean {
   return user.role === "owner" || user.role === "staff";
@@ -77,6 +86,9 @@ export async function assertCanAccessClass(
 ): Promise<SessionUser> {
   const user = await requireEffectiveUser();
   if (hasStaffPrivileges(user)) return user;
+  if (!isTutorLike(user)) {
+    throw new Error("You do not have access to this class.");
+  }
   const match = await getTutorMatch(user.email);
   if (!tutorCanAccessClass(classTutor, match)) {
     throw new Error("You do not have access to this class.");
@@ -90,6 +102,9 @@ export async function assertCanMarkAttendance(
 ): Promise<SessionUser> {
   const user = await requireEffectiveUser();
   if (hasStaffPrivileges(user)) return user;
+  if (!isTutorLike(user)) {
+    throw new Error("You do not have access to this class.");
+  }
   const match = await getTutorMatch(user.email);
   if (tutorCanAccessClass(classTutor, match)) return user;
   if (reliefTutor && tutorCanAccessClass(reliefTutor, match)) return user;
@@ -118,5 +133,6 @@ export async function assertCanAccessMakeupHub(): Promise<SessionUser> {
 export function roleLabel(role: UserRole): string {
   if (role === "owner") return "Owner";
   if (role === "staff") return "Staff";
+  if (role === "relief_tutor") return "Relief tutor";
   return "Tutor";
 }

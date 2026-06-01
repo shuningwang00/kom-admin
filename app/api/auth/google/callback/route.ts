@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const mode = (searchParams.get("state") ?? "sheets") as GoogleAuthMode;
 
   const base = new URL(request.url);
-  base.pathname = mode === "signin" ? "/students" : "/billing";
+  base.pathname = mode === "signin" ? "/calendar" : "/billing";
   base.search = "";
 
   if (error) {

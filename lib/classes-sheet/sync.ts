@@ -1,5 +1,6 @@
 import type { getDb } from "@/lib/db/index";
 import { classes, importRuns, weekdayEnum } from "@/lib/db/schema";
+import { alignAllowlistTutorNamesFromSheet } from "@/lib/classes-sheet/align-tutor-names";
 import { loadParsedClassesFromSheet } from "@/lib/classes-sheet/load";
 import { getClassesSpreadsheetId } from "@/lib/classes-sheet/config";
 import { parseDayToWeekday } from "@/lib/classes-sheet/parser";
@@ -113,12 +114,20 @@ export async function syncClassesFromSheetIfConfigured(
   }
 
   await applyParsedToDb(db, loaded.parsed);
+  const allowlistTutorsAligned = await alignAllowlistTutorNamesFromSheet(
+    db,
+    loaded.parsed,
+  );
 
   const syncedAt = new Date().toISOString();
   await db.insert(importRuns).values({
     source: "sheet-sync",
     spreadsheetId: getClassesSpreadsheetId(),
-    statsJson: JSON.stringify({ count: loaded.parsed.length, sheetTitle: loaded.sheetTitle }),
+    statsJson: JSON.stringify({
+      count: loaded.parsed.length,
+      sheetTitle: loaded.sheetTitle,
+      allowlistTutorsAligned,
+    }),
   });
 
   const info = await getLastSyncInfo(db);

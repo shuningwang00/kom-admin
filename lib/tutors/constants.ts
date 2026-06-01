@@ -9,6 +9,14 @@ export function isReliefTutorNeeded(
   return (reliefTutor ?? "").trim() === RELIEF_TUTOR_NEEDED_VALUE;
 }
 
+/** Session has a named cover tutor (not placeholder). */
+export function hasAssignedReliefTutor(
+  reliefTutor: string | null | undefined,
+): boolean {
+  const relief = (reliefTutor ?? "").trim();
+  return Boolean(relief) && !isReliefTutorNeeded(relief);
+}
+
 export function isSameTutorName(a: string, b: string): boolean {
   const left = a.trim().toLowerCase();
   const right = b.trim().toLowerCase();

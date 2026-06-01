@@ -358,6 +358,32 @@ export default function MakeupManager() {
     await load();
   }
 
+  async function cancelWaive(row: MakeupWaivedRow) {
+    if (
+      !confirm(
+        `Cancel waive for ${row.studentName}? They will be moved to "Needs M/U" so a makeup can be scheduled.`,
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/sessions/${row.sessionId}/attendance`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        updates: [{ studentId: row.studentId, status: "absent_notified" }],
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string };
+      setError(data.error ?? "Could not cancel waive");
+      return;
+    }
+    await load();
+  }
+
   async function waiveNeed(need: MakeupNeedRow) {
     if (
       !confirm(
@@ -752,6 +778,14 @@ export default function MakeupManager() {
                   )}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void cancelWaive(row)}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Cancel waive → Needs M/U
+                  </button>
                   <Link
                     href={`/attendance/session/${row.sessionId}`}
                     className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"

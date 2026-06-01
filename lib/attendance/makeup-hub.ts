@@ -1,4 +1,4 @@
-import { formatClassDropdownLabel } from "@/lib/classes/display-label";
+import { formatClassDropdownLabel, formatClassTypeLabel } from "@/lib/classes/display-label";
 import { programmeTypeLabel } from "@/lib/classes/match-programme";
 import { formatDayLabelFromIsoDate } from "@/lib/attendance/makeup-display";
 import { isSessionAttendanceSaved } from "@/lib/attendance/attendance-saved";
@@ -8,6 +8,11 @@ import {
   listAllScheduledMakeupsEver,
   type MakeupHubScheduledRow,
 } from "@/lib/attendance/makeup-booking";
+import { attachExpectedAttendance } from "@/lib/attendance/expected-counts";
+import {
+  clearReliefTutorNeededWhereNoStudents,
+  sessionShowsReliefTutorNeeded,
+} from "@/lib/attendance/relief-tutor-session";
 import { formatCalendarDate } from "@/lib/dates/calendar";
 import { RELIEF_TUTOR_NEEDED_VALUE } from "@/lib/tutors/constants";
 import { getDb } from "@/lib/db/index";
@@ -47,6 +52,8 @@ export type ReliefTutorNeededRow = {
   scheduledDate: string;
   timeLabel: string;
   classLabel: string;
+  /** Class type only — no weekday, time, or tutor. */
+  typeLabel: string;
   regularTutor: string;
   makeupDayLabel: string;
   students: Array<{ studentId: string; studentName: string }>;
@@ -197,10 +204,20 @@ export async function listReliefTutorNeededSessions(
     )
     .orderBy(asc(classSessions.scheduledDate));
 
+  const inRange = sessions.filter(
+    ({ session }) => session.scheduledDate <= forward,
+  );
+  const withExpected = await attachExpectedAttendance(
+    inRange.map(({ session, class: cls }) => ({ session, class: cls })),
+  );
+  await clearReliefTutorNeededWhereNoStudents(db, withExpected);
+
   const rows: ReliefTutorNeededRow[] = [];
 
-  for (const { session, class: cls } of sessions) {
-    if (session.scheduledDate > forward) continue;
+  for (const { session, class: cls, expected } of withExpected) {
+    if (!sessionShowsReliefTutorNeeded(session.reliefTutor, expected)) {
+      continue;
+    }
 
     const makeupStudents = await db
       .select({
@@ -222,6 +239,7 @@ export async function listReliefTutorNeededSessions(
       scheduledDate: session.scheduledDate,
       timeLabel: session.timeLabel,
       classLabel: formatClassDropdownLabel(cls),
+      typeLabel: formatClassTypeLabel(cls),
       regularTutor: cls.tutor,
       makeupDayLabel: formatDayLabelFromIsoDate(session.scheduledDate),
       students: makeupStudents.map((s) => ({

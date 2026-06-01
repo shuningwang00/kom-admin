@@ -1,10 +1,5 @@
-import AppShell from "@/components/app-shell";
-import TeachersAllowlist from "@/components/teachers-allowlist";
+import { redirect } from "next/navigation";
 
 export default function TeachersAdminPage() {
-  return (
-    <AppShell title="Team access">
-      <TeachersAllowlist />
-    </AppShell>
-  );
+  redirect("/settings/manageaccess");
 }

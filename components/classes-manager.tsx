@@ -89,7 +89,8 @@ export default function ClassesManager() {
           <div>
             <p className="text-sm text-zinc-600">
               The database is the source of truth — classes persist until you sync again.
-              Press sync only when your Google Sheet timetable has changed.
+              Press sync when your Google Sheet timetable has changed (class
+              tutors and Team access schedule names update together).
             </p>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-400">
               {lastSyncedAt && (

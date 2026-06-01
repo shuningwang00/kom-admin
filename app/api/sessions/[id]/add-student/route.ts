@@ -4,6 +4,7 @@ import {
   toSessionDetailResponse,
 } from "@/lib/attendance/session-detail";
 import { jsonError, jsonOk } from "@/lib/api/json";
+import { assertSessionNotCancelled } from "@/lib/attendance/cancel-session";
 import { assertCanMarkAttendance } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function POST(request: Request, { params }: Params) {
     if (!detail) return jsonError("Session not found.", 404);
 
     const actor = await assertCanMarkAttendance(detail.class.tutor);
+    assertSessionNotCancelled(detail.session.status);
     const body = (await request.json()) as { studentId?: string };
     if (!body.studentId?.trim()) {
       return jsonError("studentId is required.");

@@ -14,11 +14,14 @@ export function ReliefTutorField({
   reliefTutor,
   onSave,
   disabled,
+  allowReliefNeededOption = true,
 }: {
   regularTutor: string;
   reliefTutor: string;
   onSave: (reliefTutor: string) => Promise<void>;
   disabled?: boolean;
+  /** Hide “Relief tutor needed” when no students are expected. */
+  allowReliefNeededOption?: boolean;
 }) {
   const [tutors, setTutors] = useState<string[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -131,9 +134,11 @@ export function ReliefTutorField({
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
               >
                 <option value="">— Regular tutor —</option>
-                <option value={RELIEF_TUTOR_NEEDED_VALUE}>
-                  Relief tutor needed
-                </option>
+                {allowReliefNeededOption && (
+                  <option value={RELIEF_TUTOR_NEEDED_VALUE}>
+                    Relief tutor needed
+                  </option>
+                )}
                 {tutorOptionsExcludingRegular(tutors, regularTutor).map(
                   (name) => (
                     <option key={name} value={name}>

@@ -38,8 +38,14 @@ async function resolveFromAllowlist(email: string): Promise<AllowlistResolved | 
 
   if (!row) return null;
   const allowlistRole = row.role as AllowlistRole;
-  const role: UserRole =
-    allowlistRole === "staff" || allowlistRole === "staff_tutor" ? "staff" : "tutor";
+  let role: UserRole;
+  if (allowlistRole === "staff" || allowlistRole === "staff_tutor") {
+    role = "staff";
+  } else if (allowlistRole === "relief_tutor") {
+    role = "relief_tutor";
+  } else {
+    role = "tutor";
+  }
   return {
     role,
     allowlistRole,

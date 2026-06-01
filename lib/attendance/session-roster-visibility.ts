@@ -50,3 +50,31 @@ export async function loadMakeupBookingsByStudent(
 
   return bookingsByStudent;
 }
+
+/** Load ALL makeup_scheduled bookings across all students. Use for bulk operations
+ *  where student IDs aren't known in advance (avoids a sequential query dependency). */
+export async function loadAllMakeupBookings(): Promise<Map<string, MakeupBooking[]>> {
+  const db = getDb();
+  const bookingRows = await db
+    .select({
+      studentId: attendanceRecords.studentId,
+      sessionId: classSessions.id,
+      scheduledDate: classSessions.scheduledDate,
+      makeupNote: attendanceRecords.makeupNote,
+    })
+    .from(attendanceRecords)
+    .innerJoin(classSessions, eq(attendanceRecords.sessionId, classSessions.id))
+    .where(eq(attendanceRecords.status, "makeup_scheduled"));
+
+  const bookingsByStudent = new Map<string, MakeupBooking[]>();
+  for (const row of bookingRows) {
+    const list = bookingsByStudent.get(row.studentId) ?? [];
+    list.push({
+      sessionId: row.sessionId,
+      scheduledDate: row.scheduledDate,
+      makeupNote: row.makeupNote ?? "",
+    });
+    bookingsByStudent.set(row.studentId, list);
+  }
+  return bookingsByStudent;
+}

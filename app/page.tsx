@@ -8,11 +8,5 @@ export default async function Home() {
   if (!user) {
     redirect("/login");
   }
-  if (user?.role === "tutor") {
-    redirect("/attendance/tutor");
-  }
-  if (user?.role === "staff") {
-    redirect("/attendance");
-  }
-  redirect("/attendance");
+  redirect("/calendar");
 }

@@ -1,8 +1,12 @@
-import { slotCoversShift } from "@/lib/centre-hours";
+import { normalizeTime, slotCoversShift } from "@/lib/centre-hours";
 import type { getDb } from "@/lib/db/index";
 import { adminRosterShift, classSessions, classes } from "@/lib/db/schema";
 import { listAvailabilityForMonth } from "@/lib/people/staff-availability";
-import { listActiveStaff } from "@/lib/people/staff-list";
+import { listActiveStaff, memberListLabel } from "@/lib/people/staff-list";
+import {
+  filterAvailabilityExcludingTimeOff,
+  listAllStaffTimeOffForMonth,
+} from "@/lib/people/staff-time-off";
 import { formatCalendarDate, parseYearMonth } from "@/lib/dates/calendar";
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 
@@ -16,6 +20,73 @@ export type RosterShift = {
   published: boolean;
   createdBy: string;
 };
+
+export type RosterHoursByStaff = {
+  staffEmail: string;
+  staffName: string;
+  shiftCount: number;
+  totalHours: number;
+};
+
+/** Duration of one roster shift in hours (24h HH:mm). */
+export function rosterShiftDurationHours(
+  startTime: string,
+  endTime: string,
+): number {
+  const parse = (t: string) => {
+    const [h, m] = normalizeTime(t).split(":").map(Number);
+    return h * 60 + m;
+  };
+  const minutes = parse(endTime) - parse(startTime);
+  return Math.max(0, minutes) / 60;
+}
+
+export function formatRosterHours(hours: number): string {
+  const rounded = Math.round(hours * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.05) {
+    return `${Math.round(rounded)} h`;
+  }
+  return `${rounded.toFixed(1)} h`;
+}
+
+export function summarizeRosterHoursByStaff(
+  shifts: Array<
+    Pick<RosterShift, "staffEmail" | "staffName" | "startTime" | "endTime">
+  >,
+): RosterHoursByStaff[] {
+  const byEmail = new Map<
+    string,
+    { staffName: string; shiftCount: number; totalHours: number }
+  >();
+
+  for (const shift of shifts) {
+    const email = shift.staffEmail.trim().toLowerCase();
+    const hours = rosterShiftDurationHours(shift.startTime, shift.endTime);
+    const existing = byEmail.get(email);
+    if (existing) {
+      existing.shiftCount += 1;
+      existing.totalHours += hours;
+      if (!existing.staffName && shift.staffName) {
+        existing.staffName = shift.staffName;
+      }
+    } else {
+      byEmail.set(email, {
+        staffName: shift.staffName.trim() || email,
+        shiftCount: 1,
+        totalHours: hours,
+      });
+    }
+  }
+
+  return [...byEmail.entries()]
+    .map(([staffEmail, row]) => ({
+      staffEmail,
+      staffName: row.staffName,
+      shiftCount: row.shiftCount,
+      totalHours: Math.round(row.totalHours * 100) / 100,
+    }))
+    .sort((a, b) => b.totalHours - a.totalHours || a.staffName.localeCompare(b.staffName));
+}
 
 export async function listRosterShifts(
   db: ReturnType<typeof getDb>,
@@ -100,6 +171,46 @@ export async function deleteRosterShift(
   await db.delete(adminRosterShift).where(eq(adminRosterShift.id, id));
 }
 
+export async function updateRosterShift(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  input: {
+    shiftDate: string;
+    staffEmail: string;
+    staffName: string;
+    startTime: string;
+    endTime: string;
+    published?: boolean;
+  },
+): Promise<RosterShift | null> {
+  const [row] = await db
+    .update(adminRosterShift)
+    .set({
+      shiftDate: input.shiftDate,
+      staffEmail: input.staffEmail.trim().toLowerCase(),
+      staffName: input.staffName,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      ...(input.published !== undefined ? { published: input.published } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(adminRosterShift.id, id))
+    .returning();
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    shiftDate: row.shiftDate,
+    staffEmail: row.staffEmail,
+    staffName: row.staffName,
+    startTime: row.startTime,
+    endTime: row.endTime,
+    published: row.published,
+    createdBy: row.createdBy,
+  };
+}
+
 export async function setMonthPublished(
   db: ReturnType<typeof getDb>,
   yearMonth: string,
@@ -146,9 +257,11 @@ export async function computeRosterAlerts(
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = formatCalendarDate(year, month, lastDay);
 
-  const [shifts, availability, staff, sessionRows] = await Promise.all([
+  const [shifts, availabilityRaw, timeOffRecords, staff, sessionRows] =
+    await Promise.all([
     listRosterShifts(db, yearMonth),
     listAvailabilityForMonth(db, yearMonth),
+    listAllStaffTimeOffForMonth(db, yearMonth),
     listActiveStaff(db),
     db
       .select({ date: classSessions.scheduledDate })
@@ -162,6 +275,12 @@ export async function computeRosterAlerts(
         ),
       ),
   ]);
+
+  const availability = filterAvailabilityExcludingTimeOff(
+    availabilityRaw,
+    timeOffRecords,
+    yearMonth,
+  );
 
   const alerts: RosterAlert[] = [];
   const datesWithClass = new Set(sessionRows.map((r) => r.date));
@@ -215,7 +334,7 @@ export async function computeRosterAlerts(
       alerts.push({
         type: "missing_submission",
         staffEmail: s.email,
-        message: `${s.displayName} has not entered availability for ${yearMonth}.`,
+        message: `${memberListLabel(s)} has not entered availability for ${yearMonth}.`,
       });
     }
   }

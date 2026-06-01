@@ -1,13 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import AdminRosterDayPanel from "@/components/calendar/admin-roster-day-panel";
 import type {
   CalendarAdminShift,
+  CalendarHolSessionItem,
   CalendarMonthData,
   CalendarSessionItem,
   DayCoverageStatus,
 } from "@/lib/calendar/month-data";
+import {
+  calendarReliefLegendSwatchClass,
+  calendarSessionCardClass,
+  calendarSessionChipClass,
+} from "@/lib/calendar/session-styles";
+import { isReliefTutorNeeded } from "@/lib/tutors/constants";
+import { sessionTutorDisplay } from "@/lib/tutors/display";
+import type { RosterAvailSlot, RosterStaffPick } from "@/lib/people/roster-scheduling";
+import type { StaffTimeOffRecord } from "@/lib/people/staff-time-off";
+
+type CalendarApiData = CalendarMonthData & {
+  canManageRoster?: boolean;
+  scopedToOwnClasses?: boolean;
+};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -94,23 +110,22 @@ function formatWeekLabel(weekStart: string): string {
 function SessionChip({ session }: { session: CalendarSessionItem }) {
   const base =
     "rounded px-1.5 py-0.5 text-xs font-medium leading-tight truncate max-w-full";
-  const color =
-    session.status === "red"
-      ? "bg-red-100 text-red-800 border border-red-300"
-      : session.status === "blue"
-        ? "bg-sky-100 text-sky-800 border border-sky-300"
-        : session.status === "grey"
-          ? "bg-zinc-400 text-white border border-zinc-500"
-          : session.status === "inactive"
-            ? "bg-zinc-100 text-zinc-400 border border-zinc-200"
-            : "bg-orange-50 text-orange-900 border border-orange-200";
+
+  const title = [
+    `${session.classLabel} · ${session.timeLabel} · ${session.expectedCount} student${session.expectedCount === 1 ? "" : "s"}`,
+    session.status === "cancelled" ? "Class cancelled" : session.status === "red" ? "Relief needed" : session.status === "relief" ? "Relief cover" : "",
+    session.rescheduleNote && session.sessionStatus !== "cancelled" ? `Rescheduled: ${session.rescheduleNote}` : "",
+  ].filter(Boolean).join(" · ");
 
   return (
     <Link
       href={`/attendance/session/${session.sessionId}`}
-      className={`${base} ${color} block hover:opacity-80`}
-      title={`${session.classLabel} · ${session.timeLabel} · ${session.expectedCount} student${session.expectedCount === 1 ? "" : "s"}${session.status === "red" ? " · Relief needed" : ""}`}
+      className={`${base} ${calendarSessionChipClass(session.status)} block hover:opacity-80`}
+      title={title}
     >
+      {session.rescheduleNote && session.sessionStatus !== "cancelled" && (
+        <span className="mr-1 opacity-70">↺</span>
+      )}
       {session.chipLabel}
       {session.status === "red" && (
         <span className="ml-1 text-red-500">⚑</span>
@@ -119,11 +134,33 @@ function SessionChip({ session }: { session: CalendarSessionItem }) {
   );
 }
 
+function HolSessionChip({ session }: { session: CalendarHolSessionItem }) {
+  const base =
+    "rounded px-1.5 py-0.5 text-xs font-medium leading-tight truncate max-w-full";
+  const label = session.tutorName
+    ? `${session.programmeName} · ${session.tutorName}`
+    : session.programmeName;
+  return (
+    <Link
+      href={`/attendance/hol-session/${session.sessionId}`}
+      className={`${base} bg-emerald-50 text-emerald-900 border border-emerald-300 block hover:opacity-80`}
+      title={`${session.programmeName}${session.tutorName ? ` · ${session.tutorName}` : ""}${session.timeLabel ? ` · ${session.timeLabel}` : ""}`}
+    >
+      {label}
+    </Link>
+  );
+}
+
 function AdminShiftChip({ shift }: { shift: CalendarAdminShift }) {
+  const draft = !shift.published;
   return (
     <div
-      className="truncate rounded border border-violet-300 bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-900"
-      title={`Admin: ${shift.staffName} ${shift.startTime}–${shift.endTime}`}
+      className={`truncate rounded border px-1.5 py-0.5 text-xs font-medium ${
+        draft
+          ? "border-dashed border-amber-300 bg-amber-50 text-amber-900"
+          : "border-violet-300 bg-violet-100 text-violet-900"
+      }`}
+      title={`Admin: ${shift.staffName} ${shift.startTime}–${shift.endTime}${draft ? " (draft)" : ""}`}
     >
       {shift.staffName} {shift.startTime}–{shift.endTime}
     </div>
@@ -136,6 +173,44 @@ function coverageDayClass(status: DayCoverageStatus): string {
   return "bg-white";
 }
 
+const MAX_ADMINS_WITH_LESSONS = 2;
+const MAX_LESSONS_IN_MONTH_CELL = 3;
+/** When lessons are hidden, show more admin chips in the day cell. */
+const MAX_ADMINS_ADMIN_ONLY = 8;
+
+function monthCellPreview(
+  adminShifts: CalendarAdminShift[],
+  sessions: CalendarSessionItem[],
+  holSessions: CalendarHolSessionItem[],
+  lessonsVisible: boolean,
+) {
+  if (!lessonsVisible) {
+    const shownAdmins = adminShifts.slice(0, MAX_ADMINS_ADMIN_ONLY);
+    return {
+      shownAdmins,
+      shownSessions: [] as CalendarSessionItem[],
+      shownHolSessions: [] as CalendarHolSessionItem[],
+      hiddenAdmins: adminShifts.length - shownAdmins.length,
+      hiddenLessons: 0,
+    };
+  }
+
+  const shownAdmins = adminShifts.slice(0, MAX_ADMINS_WITH_LESSONS);
+  const shownSessions = sessions.slice(0, MAX_LESSONS_IN_MONTH_CELL);
+  const holSlots = Math.max(0, MAX_LESSONS_IN_MONTH_CELL - shownSessions.length);
+  const shownHolSessions = holSessions.slice(0, holSlots);
+  const hiddenLessons =
+    sessions.length - shownSessions.length +
+    holSessions.length - shownHolSessions.length;
+  return {
+    shownAdmins,
+    shownSessions,
+    shownHolSessions,
+    hiddenAdmins: adminShifts.length - shownAdmins.length,
+    hiddenLessons,
+  };
+}
+
 // ─── month grid ──────────────────────────────────────────────────────────────
 
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -143,11 +218,17 @@ const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function MonthGrid({
   data,
   onWeekClick,
+  onDaySelect,
+  canManageRoster,
+  selectedDate,
   showLessons,
   showAdmin,
 }: {
   data: CalendarMonthData;
   onWeekClick: (weekStart: string) => void;
+  onDaySelect: (date: string) => void;
+  canManageRoster: boolean;
+  selectedDate: string | null;
   showLessons: boolean;
   showAdmin: boolean;
 }) {
@@ -183,11 +264,33 @@ function MonthGrid({
           const coverage = day?.coverageStatus ?? "ok";
           const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
           const sessions = showLessons ? cell.sessions : [];
+          const holSessions = showLessons ? (day?.holSessions ?? []) : [];
+          const preview = monthCellPreview(adminShifts, sessions, holSessions, showLessons);
+          const isSelected = selectedDate === cell.date;
           return (
             <div
               key={cell.date}
-              className={`min-h-24 cursor-pointer p-1.5 hover:opacity-90 ${coverageDayClass(coverage)}`}
-              onClick={() => onWeekClick(getWeekStart(cell.date!))}
+              role={canManageRoster ? "button" : undefined}
+              tabIndex={canManageRoster ? 0 : undefined}
+              className={`min-h-24 p-1.5 ${
+                canManageRoster ? "cursor-pointer hover:ring-2 hover:ring-inset hover:ring-violet-300" : "cursor-pointer hover:opacity-90"
+              } ${coverageDayClass(coverage)} ${
+                isSelected ? "ring-2 ring-inset ring-violet-500" : ""
+              }`}
+              onClick={() => {
+                if (canManageRoster) {
+                  onDaySelect(cell.date!);
+                  return;
+                }
+                onWeekClick(getWeekStart(cell.date!));
+              }}
+              onKeyDown={(e) => {
+                if (!canManageRoster) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onDaySelect(cell.date!);
+                }
+              }}
             >
               <div className="mb-1 flex items-center justify-between">
                 <span
@@ -205,15 +308,35 @@ function MonthGrid({
                   </span>
                 )}
               </div>
-              <div className="flex flex-col gap-0.5">
-                {adminShifts.slice(0, 2).map((s) => (
+              <div
+                className="flex flex-col gap-0.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {preview.shownAdmins.map((s) => (
                   <AdminShiftChip key={s.id} shift={s} />
                 ))}
-                {sessions.slice(0, 3).map((s) => (
+                {preview.shownSessions.map((s) => (
                   <SessionChip key={s.sessionId} session={s} />
                 ))}
-                {(adminShifts.length + sessions.length) > 5 && (
-                  <span className="text-xs text-zinc-400">+more</span>
+                {preview.shownHolSessions.map((s) => (
+                  <HolSessionChip key={s.sessionId} session={s} />
+                ))}
+                {preview.hiddenAdmins > 0 && (
+                  <span
+                    className="text-xs font-medium text-violet-700"
+                    title={`${preview.hiddenAdmins} more admin shift${preview.hiddenAdmins === 1 ? "" : "s"}`}
+                  >
+                    +{preview.hiddenAdmins} admin
+                  </span>
+                )}
+                {preview.hiddenLessons > 0 && (
+                  <span
+                    className="text-xs text-zinc-500"
+                    title={`${preview.hiddenLessons} more lesson${preview.hiddenLessons === 1 ? "" : "s"}`}
+                  >
+                    +{preview.hiddenLessons} lesson
+                    {preview.hiddenLessons === 1 ? "" : "s"}
+                  </span>
                 )}
               </div>
             </div>
@@ -232,6 +355,9 @@ function WeekView({
   onBack,
   onPrevWeek,
   onNextWeek,
+  onDaySelect,
+  canManageRoster,
+  selectedDate,
   showLessons,
   showAdmin,
 }: {
@@ -240,6 +366,9 @@ function WeekView({
   onBack: () => void;
   onPrevWeek: () => void;
   onNextWeek: () => void;
+  onDaySelect: (date: string) => void;
+  canManageRoster: boolean;
+  selectedDate: string | null;
   showLessons: boolean;
   showAdmin: boolean;
 }) {
@@ -290,24 +419,42 @@ function WeekView({
           {weekDays.map((iso) => {
             const day = dayMap.get(iso);
             const sessions = showLessons ? (day?.sessions ?? []) : [];
+            const holSessions = showLessons ? (day?.holSessions ?? []) : [];
             const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
             const isToday = iso === today;
             const hasRed = sessions.some((s) => s.status === "red");
             const cov = day?.coverageStatus ?? "ok";
 
+            const isSelected = selectedDate === iso;
             return (
               <div
                 key={iso}
+                role={canManageRoster ? "button" : undefined}
+                tabIndex={canManageRoster ? 0 : undefined}
+                onClick={() => {
+                  if (canManageRoster) onDaySelect(iso);
+                }}
+                onKeyDown={(e) => {
+                  if (!canManageRoster) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onDaySelect(iso);
+                  }
+                }}
                 className={`rounded-xl border p-2 ${
-                  isToday
-                    ? "border-orange-300 bg-orange-50"
-                    : cov === "no_admin_has_class"
-                      ? "border-red-300 bg-red-50"
-                      : cov === "no_admin_no_class"
-                        ? "border-orange-200 bg-orange-50"
-                        : hasRed
-                          ? "border-red-200 bg-red-50/30"
-                          : "border-zinc-200 bg-white"
+                  canManageRoster ? "cursor-pointer hover:ring-2 hover:ring-violet-300" : ""
+                } ${
+                  isSelected
+                    ? "ring-2 ring-violet-500"
+                    : isToday
+                      ? "border-orange-300 bg-orange-50"
+                      : cov === "no_admin_has_class"
+                        ? "border-red-300 bg-red-50"
+                        : cov === "no_admin_no_class"
+                          ? "border-orange-200 bg-orange-50"
+                          : hasRed
+                            ? "border-red-200 bg-red-50/30"
+                            : "border-zinc-200 bg-white"
                 }`}
               >
                 <div className="mb-2 text-center">
@@ -321,10 +468,13 @@ function WeekView({
                   </div>
                 </div>
 
-                {adminShifts.length === 0 && sessions.length === 0 ? (
+                {adminShifts.length === 0 && sessions.length === 0 && holSessions.length === 0 ? (
                   <p className="text-center text-xs text-zinc-300">—</p>
                 ) : (
-                  <div className="flex flex-col gap-1.5">
+                  <div
+                    className="flex flex-col gap-1.5"
+                    onClick={(e) => canManageRoster && e.stopPropagation()}
+                  >
                     {adminShifts.map((s) => (
                       <AdminShiftChip key={s.id} shift={s} />
                     ))}
@@ -332,17 +482,7 @@ function WeekView({
                       <Link
                         key={s.sessionId}
                         href={`/attendance/session/${s.sessionId}`}
-                        className={`rounded-lg border p-2 text-xs transition hover:opacity-80 ${
-                          s.status === "red"
-                            ? "border-red-300 bg-red-50 text-red-900"
-                            : s.status === "blue"
-                              ? "border-sky-300 bg-sky-50 text-sky-900"
-                              : s.status === "grey"
-                                ? "border-zinc-400 bg-zinc-300 text-zinc-700"
-                                : s.status === "inactive"
-                                  ? "border-zinc-200 bg-zinc-50 text-zinc-400"
-                                  : "border-orange-200 bg-orange-50/60 text-orange-900"
-                        }`}
+                        className={`rounded-lg border p-2 text-xs transition hover:opacity-80 ${calendarSessionCardClass(s.status)}`}
                       >
                         <div className="font-semibold leading-snug">
                           {s.typeLabel}
@@ -350,26 +490,68 @@ function WeekView({
                             <span className="ml-1 text-red-500">⚑</span>
                           )}
                         </div>
-                        {s.tutor && (
-                          <div className="mt-0.5 font-medium">{s.tutor}</div>
-                        )}
+                        {(() => {
+                          const { primary, subtitle } = sessionTutorDisplay(
+                            s.tutor,
+                            s.reliefTutor ?? "",
+                          );
+                          if (!primary || primary === "—") return null;
+                          return (
+                            <>
+                              <div className="mt-0.5 font-medium">{primary}</div>
+                              {subtitle && (
+                                <div className="mt-0.5 text-[10px] text-zinc-500">
+                                  {subtitle}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                         <div className="mt-0.5 text-zinc-400">{s.timeLabel}</div>
+                        {s.rescheduleNote && s.sessionStatus !== "cancelled" && (
+                          <div className="mt-0.5 text-[10px] font-medium text-amber-800">
+                            ↺ {s.rescheduleNote}
+                          </div>
+                        )}
                         <div className="mt-0.5">
                           {s.status === "inactive" ? (
                             <span className="text-zinc-400">No enrollments</span>
                           ) : s.status === "grey" ? (
                             <span>All waived/makeup</span>
-                          ) : s.status === "red" ? (
+                          ) : s.status === "red" &&
+                            isReliefTutorNeeded(s.reliefTutor ?? "") ? (
                             <>
                               <span>{s.expectedCount} student{s.expectedCount === 1 ? "" : "s"}</span>
                               <div className="mt-0.5 font-medium text-red-700">Relief tutor needed</div>
                             </>
+                          ) : s.status === "red" ? (
+                            <span>
+                              {s.expectedCount} student{s.expectedCount === 1 ? "" : "s"}
+                            </span>
                           ) : (
                             <span>
                               {s.expectedCount} student{s.expectedCount === 1 ? "" : "s"}
                               {s.status === "blue" ? " (incl. trial)" : ""}
                             </span>
                           )}
+                        </div>
+                      </Link>
+                    ))}
+                    {holSessions.map((s) => (
+                      <Link
+                        key={s.sessionId}
+                        href={`/attendance/hol-session/${s.sessionId}`}
+                        className="rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-900 transition hover:opacity-80"
+                      >
+                        <div className="font-semibold leading-snug">{s.programmeName}</div>
+                        {s.tutorName && (
+                          <div className="mt-0.5 font-medium">{s.tutorName}</div>
+                        )}
+                        {s.timeLabel && (
+                          <div className="mt-0.5 text-emerald-600">{s.timeLabel}</div>
+                        )}
+                        <div className="mt-0.5 text-emerald-700">
+                          {s.newCount} new + {s.existingCount} existing
                         </div>
                       </Link>
                     ))}
@@ -390,19 +572,32 @@ function ListView({
   data,
   showLessons,
   showAdmin,
+  canManageRoster,
+  onDaySelect,
 }: {
   data: CalendarMonthData;
   showLessons: boolean;
   showAdmin: boolean;
+  canManageRoster: boolean;
+  onDaySelect: (date: string) => void;
 }) {
   return (
     <ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white">
       {data.days.map((day) => {
         const sessions = showLessons ? day.sessions : [];
+        const holSessions = showLessons ? day.holSessions : [];
         const admin = showAdmin ? day.adminShifts : [];
-        if (sessions.length === 0 && admin.length === 0) return null;
+        if (sessions.length === 0 && holSessions.length === 0 && admin.length === 0) return null;
         return (
-          <li key={day.date} className={`px-4 py-3 ${coverageDayClass(day.coverageStatus)}`}>
+          <li
+            key={day.date}
+            className={`px-4 py-3 ${coverageDayClass(day.coverageStatus)} ${
+              canManageRoster ? "cursor-pointer hover:bg-violet-50/40" : ""
+            }`}
+            onClick={() => {
+              if (canManageRoster) onDaySelect(day.date);
+            }}
+          >
             <p className="text-sm font-semibold text-zinc-800">
               {isoToDayOfWeek(day.date)} {isoToDayNum(day.date)}
             </p>
@@ -412,6 +607,9 @@ function ListView({
               ))}
               {sessions.map((s) => (
                 <SessionChip key={s.sessionId} session={s} />
+              ))}
+              {holSessions.map((s) => (
+                <HolSessionChip key={s.sessionId} session={s} />
               ))}
             </div>
           </li>
@@ -429,16 +627,16 @@ function Legend() {
         Admin duty
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="h-3 w-3 rounded border border-orange-200 bg-orange-50" />
-        No admin (no class)
+        <span className={calendarReliefLegendSwatchClass} />
+        Relief cover
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="h-3 w-3 rounded border border-red-200 bg-red-50" />
-        No admin (has class)
+        <span className="h-3 w-3 rounded border border-zinc-400 bg-zinc-200" />
+        Class cancelled
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="h-3 w-3 rounded border border-orange-200 bg-orange-50" />
-        Lesson
+        <span className="text-sm font-medium text-amber-800">↺</span>
+        Rescheduled
       </div>
       <div className="flex items-center gap-1.5">
         <span className="h-3 w-3 rounded border border-sky-300 bg-sky-100" />
@@ -465,25 +663,143 @@ function Legend() {
 export default function CalendarView() {
   const [yearMonth, setYearMonth] = useState(todayYearMonth);
   const [data, setData] = useState<CalendarMonthData | null>(null);
+  const [canManageRoster, setCanManageRoster] = useState(false);
+  const [rosterStaff, setRosterStaff] = useState<RosterStaffPick[]>([]);
+  const [rosterAvailability, setRosterAvailability] = useState<RosterAvailSlot[]>(
+    [],
+  );
+  const [rosterTimeOff, setRosterTimeOff] = useState<StaffTimeOffRecord[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [rosterSaving, setRosterSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<string | null>(null);
   const [hideInactive, setHideInactive] = useState(true);
   const [showLessons, setShowLessons] = useState(true);
+  const [scopedToOwnClasses, setScopedToOwnClasses] = useState(false);
   const [showAdmin, setShowAdmin] = useState(true);
   const [viewMode, setViewMode] = useState<"month" | "week" | "list">("month");
+
+  const loadCalendar = useCallback(async (ym: string) => {
+    const res = await fetch(`/api/calendar/${ym}`);
+    const json = (await res.json()) as CalendarApiData & { error?: string };
+    if (!res.ok) throw new Error(json.error ?? "Failed to load");
+    setData(json);
+    setCanManageRoster(Boolean(json.canManageRoster));
+    setScopedToOwnClasses(Boolean(json.scopedToOwnClasses));
+    if (json.scopedToOwnClasses) setShowAdmin(false);
+    return json;
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`/api/calendar/${yearMonth}`)
-      .then((r) =>
-        r.ok ? r.json() : Promise.reject(new Error("Failed to load")),
-      )
-      .then((json: CalendarMonthData) => setData(json))
+    loadCalendar(yearMonth)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
-  }, [yearMonth]);
+  }, [yearMonth, loadCalendar]);
+
+  const loadRosterContext = useCallback(async (ym: string) => {
+    const res = await fetch(`/api/admin-roster?month=${ym}`);
+    if (!res.ok) {
+      setRosterStaff([]);
+      setRosterAvailability([]);
+      setRosterTimeOff([]);
+      return;
+    }
+    const json = (await res.json()) as {
+      staff?: RosterStaffPick[];
+      availability?: RosterAvailSlot[];
+      staffTimeOff?: StaffTimeOffRecord[];
+    };
+    setRosterStaff(json.staff ?? []);
+    setRosterAvailability(json.availability ?? []);
+    setRosterTimeOff(json.staffTimeOff ?? []);
+  }, []);
+
+  useEffect(() => {
+    if (!canManageRoster) {
+      setRosterStaff([]);
+      setRosterAvailability([]);
+      setRosterTimeOff([]);
+      return;
+    }
+    loadRosterContext(yearMonth).catch(() => {
+      setRosterStaff([]);
+      setRosterAvailability([]);
+      setRosterTimeOff([]);
+    });
+  }, [canManageRoster, yearMonth, loadRosterContext]);
+
+  async function refreshAfterRosterChange() {
+    await Promise.all([loadCalendar(yearMonth), loadRosterContext(yearMonth)]);
+  }
+
+  async function handleAddRosterShift(
+    input: { staffEmail: string; startTime: string; endTime: string },
+  ) {
+    if (!selectedDate) return;
+    setRosterSaving(true);
+    try {
+      const res = await fetch("/api/admin-roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shiftDate: selectedDate,
+          staffEmail: input.staffEmail,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          published: true,
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed");
+      await refreshAfterRosterChange();
+    } finally {
+      setRosterSaving(false);
+    }
+  }
+
+  async function handleUpdateRosterShift(input: {
+    id: string;
+    staffEmail: string;
+    startTime: string;
+    endTime: string;
+  }) {
+    if (!selectedDate) return;
+    setRosterSaving(true);
+    try {
+      const res = await fetch(`/api/admin-roster/${input.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shiftDate: selectedDate,
+          staffEmail: input.staffEmail,
+          startTime: input.startTime,
+          endTime: input.endTime,
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed");
+      await refreshAfterRosterChange();
+    } finally {
+      setRosterSaving(false);
+    }
+  }
+
+  async function handleRemoveRosterShift(id: string) {
+    setRosterSaving(true);
+    try {
+      const res = await fetch(`/api/admin-roster/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Failed");
+      }
+      await refreshAfterRosterChange();
+    } finally {
+      setRosterSaving(false);
+    }
+  }
 
   function navigateWeek(direction: -1 | 1) {
     if (!weekStart) return;
@@ -511,8 +827,25 @@ export default function CalendarView() {
     displayData?.days.flatMap((d) => d.sessions).filter((s) => s.status === "grey")
       .length ?? 0;
 
+  const selectedDay = selectedDate
+    ? displayData?.days.find((d) => d.date === selectedDate)
+    : null;
+
   return (
     <div className="space-y-6">
+      {scopedToOwnClasses && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          Showing only classes you teach or cover as relief.
+        </p>
+      )}
+
+      {canManageRoster && (
+        <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+          Click any day to schedule admin duty alongside lessons. Only you see
+          this — everyone else sees the published calendar.
+        </p>
+      )}
+
       {/* Month nav */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -551,47 +884,7 @@ export default function CalendarView() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Legend />
-          {redCount > 0 && (
-            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-              {redCount} relief needed
-            </span>
-          )}
-          {greyCount > 0 && (
-            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
-              {greyCount} empty session{greyCount !== 1 ? "s" : ""}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowLessons((v) => !v)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-              showLessons ? "border-orange-300 bg-orange-50 text-orange-800" : "border-zinc-200 text-zinc-500"
-            }`}
-          >
-            Lessons
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAdmin((v) => !v)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-              showAdmin ? "border-violet-300 bg-violet-50 text-violet-800" : "border-zinc-200 text-zinc-500"
-            }`}
-          >
-            Admin roster
-          </button>
-          <button
-            type="button"
-            onClick={() => setHideInactive((v) => !v)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-              hideInactive
-                ? "border-zinc-300 bg-zinc-100 text-zinc-700"
-                : "border-zinc-200 text-zinc-500 hover:bg-zinc-50"
-            }`}
-          >
-            {hideInactive ? "Active classes only" : "Show all classes"}
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-zinc-200 p-0.5 text-xs">
             {(["month", "week", "list"] as const).map((m) => (
               <button
@@ -612,6 +905,50 @@ export default function CalendarView() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowLessons((v) => !v)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              showLessons ? "border-orange-300 bg-orange-50 text-orange-800" : "border-zinc-200 text-zinc-500"
+            }`}
+          >
+            Lessons
+          </button>
+          {!scopedToOwnClasses && (
+            <button
+              type="button"
+              onClick={() => setShowAdmin((v) => !v)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                showAdmin ? "border-violet-300 bg-violet-50 text-violet-800" : "border-zinc-200 text-zinc-500"
+              }`}
+            >
+              Admin
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setHideInactive((v) => !v)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              hideInactive
+                ? "border-zinc-300 bg-zinc-100 text-zinc-700"
+                : "border-zinc-200 text-zinc-500 hover:bg-zinc-50"
+            }`}
+          >
+            {hideInactive ? "Active classes only" : "Show all classes"}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Legend />
+          {redCount > 0 && (
+            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+              {redCount} relief needed
+            </span>
+          )}
+          {greyCount > 0 && (
+            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
+              {greyCount} empty session{greyCount !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -624,7 +961,13 @@ export default function CalendarView() {
         </div>
       ) : displayData ? (
         viewMode === "list" ? (
-          <ListView data={displayData} showLessons={showLessons} showAdmin={showAdmin} />
+          <ListView
+            data={displayData}
+            showLessons={showLessons}
+            showAdmin={showAdmin}
+            canManageRoster={canManageRoster}
+            onDaySelect={setSelectedDate}
+          />
         ) : viewMode === "week" && weekStart ? (
           <WeekView
             weekStart={weekStart}
@@ -632,6 +975,9 @@ export default function CalendarView() {
             onBack={() => { setWeekStart(null); setViewMode("month"); }}
             onPrevWeek={() => navigateWeek(-1)}
             onNextWeek={() => navigateWeek(1)}
+            onDaySelect={setSelectedDate}
+            canManageRoster={canManageRoster}
+            selectedDate={selectedDate}
             showLessons={showLessons}
             showAdmin={showAdmin}
           />
@@ -640,12 +986,37 @@ export default function CalendarView() {
             <MonthGrid
               data={displayData}
               onWeekClick={(ws) => { setWeekStart(ws); setViewMode("week"); }}
+              onDaySelect={setSelectedDate}
+              canManageRoster={canManageRoster}
+              selectedDate={selectedDate}
               showLessons={showLessons}
               showAdmin={showAdmin}
             />
           </div>
         )
       ) : null}
+
+      {canManageRoster && selectedDate && selectedDay && (
+        <AdminRosterDayPanel
+          date={selectedDate}
+          yearMonth={yearMonth}
+          sessions={selectedDay.sessions}
+          holSessions={selectedDay.holSessions}
+          adminShifts={selectedDay.adminShifts}
+          staff={rosterStaff}
+          availability={rosterAvailability}
+          staffTimeOff={rosterTimeOff}
+          saving={rosterSaving}
+          onClose={() => setSelectedDate(null)}
+          onAddShift={handleAddRosterShift}
+          onUpdateShift={handleUpdateRosterShift}
+          onRemoveShift={handleRemoveRosterShift}
+          onViewWeek={() => {
+            setWeekStart(getWeekStart(selectedDate));
+            setViewMode("week");
+          }}
+        />
+      )}
     </div>
   );
 }

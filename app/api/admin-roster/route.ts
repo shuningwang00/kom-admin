@@ -8,6 +8,8 @@ import {
 } from "@/lib/people/admin-roster";
 import { staffDisplayName, listActiveStaff } from "@/lib/people/staff-list";
 import { listAvailabilityForMonth } from "@/lib/people/staff-availability";
+import { listAllStaffTimeOffForMonth } from "@/lib/people/staff-time-off";
+import { memberListLabel } from "@/lib/people/staff-list";
 
 export const dynamic = "force-dynamic";
 
@@ -27,12 +29,18 @@ export async function GET(request: Request) {
       return jsonOk({ month, shifts });
     }
 
-    const [availability, staff] = await Promise.all([
+    const [availability, staffMembers, staffTimeOff] = await Promise.all([
       listAvailabilityForMonth(db, month),
       listActiveStaff(db),
+      listAllStaffTimeOffForMonth(db, month),
     ]);
 
-    return jsonOk({ month, shifts, availability, staff });
+    const staff = staffMembers.map((m) => ({
+      email: m.email,
+      displayName: memberListLabel(m),
+    }));
+
+    return jsonOk({ month, shifts, availability, staff, staffTimeOff });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     return jsonError(message, message === "Unauthorized" ? 401 : 403);

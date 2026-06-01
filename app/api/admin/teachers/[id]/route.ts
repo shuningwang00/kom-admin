@@ -1,4 +1,5 @@
 import { requireOwner } from "@/lib/auth/access";
+import { RELIEF_TUTOR_PERMISSIONS_JSON } from "@/lib/auth/relief-tutor";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { siteAllowlist } from "@/lib/db/schema";
@@ -25,8 +26,23 @@ export async function PATCH(request: Request, { params }: Params) {
       patch.tutorMatch = String(body.tutorMatch).trim();
     }
     if (body.isActive != null) patch.isActive = Boolean(body.isActive);
-    if (body.role === "staff" || body.role === "tutor" || body.role === "staff_tutor") {
-      patch.role = body.role as "staff" | "tutor" | "staff_tutor";
+    if (body.alsoReliefTutor != null) {
+      patch.alsoReliefTutor = Boolean(body.alsoReliefTutor);
+    }
+    if (
+      body.role === "staff" ||
+      body.role === "tutor" ||
+      body.role === "staff_tutor" ||
+      body.role === "relief_tutor"
+    ) {
+      patch.role = body.role as
+        | "staff"
+        | "tutor"
+        | "staff_tutor"
+        | "relief_tutor";
+      if (body.role === "relief_tutor") {
+        patch.permissionsJson = RELIEF_TUTOR_PERMISSIONS_JSON;
+      }
     }
     if (body.email != null) {
       const email = String(body.email).trim().toLowerCase();

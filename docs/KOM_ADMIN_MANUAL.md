@@ -259,7 +259,7 @@ Business logic lives in `lib/`, not only in route handlers.
 
 1. Push to `kom-admin` → Vercel deploys `admin.knockoutmath.sg`.  
 2. Set env vars from `.env.example` (especially `DATABASE_URL`, `BILLING_ADMIN_PASSWORD`, Google OAuth with production redirect).  
-3. Align production schema: `DATABASE_URL=... npm run db:push` (or `db:migrate` for tracked migrations).  
+3. Align production schema: `DATABASE_URL=... npm run db:push` (or `db:migrate` for tracked migrations). After People features ship, ensure **`0016_staff_availability_admin_roster`** and **`0017_staff_time_off`** are applied (missing `staff_time_off` causes “Failed query” on Time off / Availability).  
 4. Google Cloud: add redirect `https://admin.knockoutmath.sg/api/auth/google/callback`.
 
 **Schema note:** `students.contact` was replaced by `primary_contact` / `secondary_contact` (migration `0003_student_contacts.sql`). Production app and DB must stay on the same version.

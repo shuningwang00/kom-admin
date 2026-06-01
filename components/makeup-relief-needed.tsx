@@ -55,50 +55,48 @@ export function MakeupReliefNeededSection({
       </p>
       <ul className="mt-3 divide-y divide-sky-100 rounded-xl border border-sky-200 bg-sky-50/40 shadow-sm">
         {rows.map((row) => (
-          <li
-            key={row.sessionId}
-            className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-end lg:justify-between"
-          >
-            <div className="min-w-0 flex-1 text-sm">
-              <p className="font-medium text-zinc-900">
-                {formatShortDate(row.scheduledDate)} ({row.makeupDayLabel}) ·{" "}
-                {row.classLabel}
-                {row.timeLabel.trim() ? ` · ${row.timeLabel.trim()}` : ""}
-              </p>
-              <p className="text-xs text-zinc-600">
-                Regular tutor: {row.regularTutor.trim() || "—"}
-                {row.students.length > 0
-                  ? ` · MU: ${row.students.map((s) => s.studentName).join(", ")}`
-                  : ""}
-              </p>
-            </div>
-            <div className="w-full min-w-0 lg:max-w-md">
-              <MakeupCustomTutorSelect
-                regularTutor={row.regularTutor}
-                reliefTutor={draftBySession[row.sessionId] ?? ""}
-                onReliefTutorChange={(relief) =>
-                  setDraftBySession((prev) => ({
-                    ...prev,
-                    [row.sessionId]: relief,
-                  }))
-                }
-              />
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => save(row.sessionId, row.regularTutor)}
-                  className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-50"
-                >
-                  Save tutor
-                </button>
-                <Link
-                  href={`/attendance/session/${row.sessionId}`}
-                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-white"
-                >
-                  Open session
-                </Link>
+          <li key={row.sessionId} className="px-4 py-3 text-sm">
+            <p className="font-medium text-zinc-900">
+              {formatShortDate(row.scheduledDate)} ({row.makeupDayLabel}) ·{" "}
+              {row.typeLabel}
+              {row.timeLabel.trim() ? ` · ${row.timeLabel.trim()}` : ""}
+              {row.students.length > 0
+                ? ` · MU: ${row.students.map((s) => s.studentName).join(", ")}`
+                : ""}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="shrink-0 text-xs text-zinc-600">
+                Original: <strong>{row.regularTutor.trim() || "—"}</strong>
+              </span>
+              <span className="shrink-0 text-xs text-zinc-600">Relief:</span>
+              <div className="min-w-[160px] flex-1">
+                <MakeupCustomTutorSelect
+                  regularTutor={row.regularTutor}
+                  reliefTutor={draftBySession[row.sessionId] ?? ""}
+                  onReliefTutorChange={(relief) =>
+                    setDraftBySession((prev) => ({
+                      ...prev,
+                      [row.sessionId]: relief,
+                    }))
+                  }
+                  hideLabel
+                  hideClassTutorOption
+                />
               </div>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => save(row.sessionId, row.regularTutor)}
+                className="shrink-0 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-50"
+              >
+                Save
+              </button>
+              <Link
+                href={`/attendance/session/${row.sessionId}`}
+                className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-white"
+              >
+                Open session
+              </Link>
             </div>
           </li>
         ))}

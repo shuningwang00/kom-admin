@@ -10,7 +10,12 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const allowlistRoleEnum = pgEnum("allowlist_role", ["staff", "tutor", "staff_tutor"]);
+export const allowlistRoleEnum = pgEnum("allowlist_role", [
+  "staff",
+  "tutor",
+  "staff_tutor",
+  "relief_tutor",
+]);
 
 export const contactTypeEnum = pgEnum("contact_type", [
   "mom",
@@ -45,6 +50,7 @@ export const attendanceStatusEnum = pgEnum("attendance_status", [
 export const classSessionStatusEnum = pgEnum("class_session_status", [
   "scheduled",
   "cancelled",
+  "rescheduled_away",
 ]);
 
 export const trialLeadStatusEnum = pgEnum("trial_lead_status", [
@@ -206,6 +212,8 @@ export const siteAllowlist = pgTable(
     tutorMatch: text("tutor_match").notNull().default(""),
     /** JSON blob of per-user permission overrides (flat key:boolean pairs). Merges over role defaults. */
     permissionsJson: text("permissions_json").notNull().default(""),
+    /** Staff (or staff+tutor) who appear in relief / makeup tutor dropdowns. */
+    alsoReliefTutor: boolean("also_relief_tutor").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -238,7 +246,7 @@ export const classSessions = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("class_sessions_class_date_uidx").on(t.classId, t.scheduledDate),
+    index("class_sessions_class_date_idx").on(t.classId, t.scheduledDate),
     index("class_sessions_date_idx").on(t.scheduledDate),
   ],
 );
@@ -318,6 +326,26 @@ export const staffAvailability = pgTable(
   ],
 );
 
+/** Staff long leave — clears admin availability for those dates. */
+export const staffTimeOff = pgTable(
+  "staff_time_off",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffEmail: text("staff_email").notNull(),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
+    reason: text("reason").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("staff_time_off_email_idx").on(t.staffEmail),
+    index("staff_time_off_dates_idx").on(t.startDate, t.endDate),
+  ],
+);
+
 /** Published admin-on-duty shifts (owner-built from availability). */
 export const adminRosterShift = pgTable(
   "admin_roster_shift",
@@ -364,6 +392,19 @@ export const tutorOoo = pgTable(
   ],
 );
 
+/** Tutor names for relief dropdowns — not required on the class schedule sheet. */
+export const reliefOnlyTutor = pgTable(
+  "relief_only_tutor",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("relief_only_tutor_name_idx").on(t.name)],
+);
+
 export const siteSettings = pgTable("site_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull().default(""),
@@ -379,3 +420,90 @@ export const importRuns = pgTable("import_runs", {
     .notNull()
     .defaultNow(),
 });
+
+export const holidayProgrammes = pgTable("holiday_programmes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const holidayProgrammeSessions = pgTable(
+  "holiday_programme_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    programmeId: uuid("programme_id")
+      .notNull()
+      .references(() => holidayProgrammes.id, { onDelete: "cascade" }),
+    scheduledDate: date("scheduled_date").notNull(),
+    timeLabel: text("time_label").notNull().default(""),
+    tutorName: text("tutor_name").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("hps_programme_date_uidx").on(t.programmeId, t.scheduledDate),
+    index("hps_date_idx").on(t.scheduledDate),
+  ],
+);
+
+export const holidayProgrammeParticipants = pgTable(
+  "holiday_programme_participants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    programmeId: uuid("programme_id")
+      .notNull()
+      .references(() => holidayProgrammes.id, { onDelete: "cascade" }),
+    /** Set when participant is an existing student (not a new lead). */
+    studentId: uuid("student_id").references(() => students.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull().default(""),
+    primaryContact: text("primary_contact").notNull().default(""),
+    primaryContactType: contactTypeEnum("primary_contact_type"),
+    secondaryContact: text("secondary_contact").notNull().default(""),
+    secondaryContactType: contactTypeEnum("secondary_contact_type"),
+    level: text("level").notNull().default(""),
+    school: text("school").notNull().default(""),
+    parentName: text("parent_name").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    /** Manually entered fee string, empty = free. */
+    fee: text("fee").notNull().default(""),
+    feePaid: boolean("fee_paid").notNull().default(false),
+    /** "active" or "converted". Only relevant for new leads (studentId is null). */
+    status: text("status").notNull().default("active"),
+    convertedStudentId: uuid("converted_student_id").references(
+      () => students.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("hpp_programme_idx").on(t.programmeId),
+    index("hpp_student_idx").on(t.studentId),
+  ],
+);
+
+export const holidayProgrammeAttendance = pgTable(
+  "holiday_programme_attendance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => holidayProgrammeSessions.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => holidayProgrammeParticipants.id, { onDelete: "cascade" }),
+    status: attendanceStatusEnum("status").notNull().default("absent_pending"),
+    updatedBy: text("updated_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("hpa_session_participant_uidx").on(t.sessionId, t.participantId),
+    index("hpa_participant_idx").on(t.participantId),
+  ],
+);

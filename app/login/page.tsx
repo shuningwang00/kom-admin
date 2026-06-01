@@ -9,10 +9,12 @@ function LoginForm() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col justify-center px-4 py-16">
-      <h1 className="text-2xl font-semibold text-zinc-900">KOM Admin</h1>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-full-dark.png" alt="KNOCKOUT/MATH" className="mx-auto h-20 w-auto object-contain" />
+      <h1 className="mt-3 text-2xl font-semibold text-zinc-900">Staff Portal</h1>
       <p className="mt-2 text-sm text-zinc-600">
-        Sign in with your centre Google account. Your email must be on Team
-        access; your role and permissions are set from that list.
+        Sign in with your personal Google account. If you do not have access,
+        please reach out to Shuning.
       </p>
 
       {googleError === "not_allowlisted" && (

@@ -35,8 +35,10 @@ export function canonicalSlotTimeLabel(row: SessionClassRow): string {
   const classNorm = normalizeTimeLabel(row.class.time);
   const sessionNorm = normalizeTimeLabel(row.session.timeLabel);
   const note = row.session.rescheduleNote?.trim() ?? "";
-  if (note && note !== "Makeup session" && sessionNorm) return sessionNorm;
-  if (note === "Makeup session" && sessionNorm) return sessionNorm;
+  // Explicit note → trust the session's stored time
+  if (note && sessionNorm) return sessionNorm;
+  // Session time differs from class default → was rescheduled without a note
+  if (sessionNorm && classNorm && sessionNorm !== classNorm) return sessionNorm;
   return (
     classNorm ||
     sessionNorm ||

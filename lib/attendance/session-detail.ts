@@ -16,7 +16,10 @@ import {
   isFreeTrialOnSession,
 } from "@/lib/enrollments/eligibility";
 import { listTrialLeadsForSession } from "@/lib/attendance/trial-lead-attendance";
+import { attachExpectedAttendance } from "@/lib/attendance/expected-counts";
+import { normalizeSessionReliefTutor } from "@/lib/attendance/relief-tutor-session";
 import { shouldMarkMakeupVisitor } from "@/lib/attendance/session-headcount";
+import type { SessionExpectedCounts } from "@/lib/attendance/session-expected-labels";
 import {
   canonicalSlotTimeLabel,
   consolidatedSessionIds,
@@ -302,13 +305,29 @@ export async function loadSessionDetail(sessionId: string) {
     missedDate,
   );
 
+  const [withExpected] = await attachExpectedAttendance([
+    { session: session.session, class: session.class },
+  ]);
+  const expected: SessionExpectedCounts = withExpected?.expected ?? {
+    regular: 0,
+    trial: 0,
+    makeup: 0,
+  };
+  const reliefTutor = await normalizeSessionReliefTutor(
+    db,
+    sessionId,
+    session.session.reliefTutor,
+    expected,
+  );
+
   return {
-    session: session.session,
+    session: { ...session.session, reliefTutor },
     class: session.class,
     students: visibleStudents,
     trialLeads,
     rosterForMakeup,
     scheduledMakeups,
+    expected,
   };
 }
 
@@ -334,7 +353,9 @@ export function toSessionDetailResponse(
         class: detail.class,
       }),
       rescheduleNote: detail.session.rescheduleNote,
+      status: detail.session.status,
       reliefTutor: detail.session.reliefTutor,
+      expected: detail.expected,
     },
     class: {
       id: detail.class.id,

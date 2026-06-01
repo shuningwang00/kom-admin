@@ -1,7 +1,7 @@
 import { daysInMonth } from "@/lib/centre-hours";
 import type { getDb } from "@/lib/db/index";
 import { staffAvailability } from "@/lib/db/schema";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 
 export type AvailabilitySlot = {
   id: string;
@@ -59,20 +59,24 @@ export async function replaceStaffMonthAvailability(
     slotLabel?: string;
     note?: string;
   }>,
+  opts?: { preserveAvailDates?: Iterable<string> },
 ): Promise<void> {
   const days = daysInMonth(yearMonth);
   const email = staffEmail.trim().toLowerCase();
   if (days.length === 0) return;
 
-  await db
-    .delete(staffAvailability)
-    .where(
-      and(
-        eq(staffAvailability.staffEmail, email),
-        gte(staffAvailability.availDate, days[0]),
-        lte(staffAvailability.availDate, days[days.length - 1]),
-      ),
-    );
+  const preserve = new Set(opts?.preserveAvailDates ?? []);
+  const datesToReplace = days.filter((d) => !preserve.has(d));
+  if (datesToReplace.length > 0) {
+    await db
+      .delete(staffAvailability)
+      .where(
+        and(
+          eq(staffAvailability.staffEmail, email),
+          inArray(staffAvailability.availDate, datesToReplace),
+        ),
+      );
+  }
 
   if (slots.length === 0) return;
 

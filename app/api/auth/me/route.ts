@@ -1,5 +1,6 @@
 import { isOwnerEmail } from "@/lib/auth/config";
-import { roleLabel } from "@/lib/auth/access";
+import { isReliefTutor, roleLabel } from "@/lib/auth/access";
+import { RELIEF_TUTOR_PERMISSIONS } from "@/lib/auth/relief-tutor";
 import { getEffectiveUser } from "@/lib/auth/user";
 import { getDb } from "@/lib/db/index";
 import { loadPermissions } from "@/lib/settings/permissions";
@@ -21,7 +22,12 @@ export async function GET() {
     const isOwner = user ? isOwnerEmail(user.email) || user.role === "owner" : false;
 
     let permissions: AppPermissions = globalPerms;
-    if (user && !isOwner && (user.role === "tutor" || user.role === "staff")) {
+    if (user && isReliefTutor(user)) {
+      permissions = {
+        tutor: RELIEF_TUTOR_PERMISSIONS,
+        staff: globalPerms.staff,
+      };
+    } else if (user && !isOwner && (user.role === "tutor" || user.role === "staff")) {
       // permissionsJson is already on the user object from the session resolution — no extra DB hit.
       let userOverride: Record<string, boolean> = {};
       if (user.permissionsJson) {
@@ -37,6 +43,7 @@ export async function GET() {
     const peopleTabs = {
       timeOff:
         isOwner ||
+        ar === "staff" ||
         ar === "tutor" ||
         ar === "staff_tutor",
       availability:

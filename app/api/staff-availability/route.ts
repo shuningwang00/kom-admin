@@ -7,11 +7,16 @@ import {
 } from "@/lib/auth/access";
 import { suggestedAvailabilityMonth } from "@/lib/centre-hours";
 import { getDb } from "@/lib/db/index";
+import { dbErrorMessage } from "@/lib/db/query-error";
 import {
   listAvailabilityForMonth,
   replaceStaffMonthAvailability,
 } from "@/lib/people/staff-availability";
-import { listActiveStaff } from "@/lib/people/staff-list";
+import { listActiveStaff, staffOptionForApi } from "@/lib/people/staff-list";
+import {
+  datesBlockedByTimeOff,
+  listStaffTimeOffForMonth,
+} from "@/lib/people/staff-time-off";
 
 export const dynamic = "force-dynamic";
 
@@ -28,25 +33,43 @@ export async function GET(request: Request) {
     const staffEmailParam = searchParams.get("staffEmail")?.trim().toLowerCase();
 
     const db = getDb();
-    const staffEmail = isOwner(user)
-      ? staffEmailParam || undefined
-      : user.email.trim().toLowerCase();
+    const staff = isOwner(user) ? await listActiveStaff(db) : [];
 
-    const [slots, staff] = await Promise.all([
+    let staffEmail = user.email.trim().toLowerCase();
+    if (isOwner(user)) {
+      if (!staffEmailParam) {
+        return jsonOk({
+          month,
+          suggestedMonth: suggestedAvailabilityMonth(),
+          slots: [],
+          staff,
+          staffEmail: null,
+          actingAsOwner: true,
+        });
+      }
+      const allowed = staff.some((s) => s.email === staffEmailParam);
+      if (!allowed) return jsonError("Staff member not found.", 404);
+      staffEmail = staffEmailParam;
+    }
+
+    const [slots, timeOffRecords] = await Promise.all([
       listAvailabilityForMonth(db, month, staffEmail),
-      isOwner(user) ? listActiveStaff(db) : Promise.resolve([]),
+      listStaffTimeOffForMonth(db, staffEmail, month),
     ]);
+    const timeOffDates = [...datesBlockedByTimeOff(timeOffRecords, month)];
 
     return jsonOk({
       month,
       suggestedMonth: suggestedAvailabilityMonth(),
       slots,
-      staff: isOwner(user) ? staff : undefined,
-      staffEmail: staffEmail ?? user.email,
+      timeOffRecords,
+      timeOffDates,
+      staff: isOwner(user) ? staff.map(staffOptionForApi) : undefined,
+      staffEmail,
+      actingAsOwner: isOwner(user),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed";
-    return jsonError(message, message === "Unauthorized" ? 401 : 403);
+    return jsonError(dbErrorMessage(err), availabilityErrorStatus(err));
   }
 }
 
@@ -70,15 +93,20 @@ export async function PUT(request: Request) {
     };
 
     const month = body.month?.trim() || suggestedAvailabilityMonth();
-    const targetEmail = (
-      isOwner(user) && body.staffEmail?.trim()
-        ? body.staffEmail
-        : user.email
-    )
-      .trim()
-      .toLowerCase();
 
-    const slots = Array.isArray(body.slots) ? body.slots : [];
+    let targetEmail = user.email.trim().toLowerCase();
+    const db = getDb();
+    if (isOwner(user)) {
+      const picked = body.staffEmail?.trim().toLowerCase();
+      if (!picked) return jsonError("Select a staff member.", 400);
+      const staff = await listActiveStaff(db);
+      if (!staff.some((s) => s.email === picked)) {
+        return jsonError("Staff member not found.", 404);
+      }
+      targetEmail = picked;
+    }
+
+    let slots = Array.isArray(body.slots) ? body.slots : [];
     for (const s of slots) {
       if (!s.availDate || !s.startTime || !s.endTime) {
         return jsonError("Each slot needs availDate, startTime, endTime.", 400);
@@ -88,13 +116,24 @@ export async function PUT(request: Request) {
       }
     }
 
-    const db = getDb();
-    await replaceStaffMonthAvailability(db, targetEmail, month, slots);
+    const timeOffRecords = await listStaffTimeOffForMonth(db, targetEmail, month);
+    const blocked = datesBlockedByTimeOff(timeOffRecords, month);
+    slots = slots.filter((s) => !blocked.has(s.availDate));
+
+    await replaceStaffMonthAvailability(db, targetEmail, month, slots, {
+      preserveAvailDates: blocked,
+    });
 
     const saved = await listAvailabilityForMonth(db, month, targetEmail);
     return jsonOk({ month, staffEmail: targetEmail, slots: saved });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed";
-    return jsonError(message, message === "Unauthorized" ? 401 : 403);
+    return jsonError(dbErrorMessage(err), availabilityErrorStatus(err));
   }
+}
+
+function availabilityErrorStatus(err: unknown): number {
+  const msg = err instanceof Error ? err.message : "";
+  if (msg === "Unauthorized") return 401;
+  if (/required|sign in|staff access/i.test(msg)) return 403;
+  return 500;
 }

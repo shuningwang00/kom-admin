@@ -78,6 +78,55 @@
       "when": 1780617600000,
       "tag": "0016_staff_availability_admin_roster",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780704000000,
+      "tag": "0017_staff_time_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780790400000,
+      "tag": "0018_relief_only_tutors",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780876800000,
+      "tag": "0019_relief_tutor_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1780963200000,
+      "tag": "0020_also_relief_tutor",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1748908800000,
+      "tag": "0021_holiday_programmes",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1748995200000,
+      "tag": "0022_relax_session_date_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1749081600000,
+      "tag": "0023_rescheduled_session_status",
+      "breakpoints": true
     }
   ]
 }

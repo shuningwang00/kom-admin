@@ -1,10 +1,5 @@
-import AppShell from "@/components/app-shell";
-import PermissionsManager from "@/components/permissions-manager";
+import { redirect } from "next/navigation";
 
 export default function PermissionsAdminPage() {
-  return (
-    <AppShell title="Permissions">
-      <PermissionsManager />
-    </AppShell>
-  );
+  redirect("/settings/permissions");
 }

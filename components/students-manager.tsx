@@ -52,6 +52,11 @@ export default function StudentsManager() {
     studentName: string;
     classLabel: string;
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [siblingGroup, setSiblingGroup] = useState<SiblingGroupValue>(
     emptySiblingGroup,
@@ -176,6 +181,25 @@ export default function StudentsManager() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archive: true }),
     });
+    load();
+  }
+
+  async function confirmDeleteStudent() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setError("");
+    const res = await fetch(`/api/students/${deleteTarget.id}`, {
+      method: "DELETE",
+    });
+    setDeleting(false);
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not delete student.");
+      setDeleteTarget(null);
+      return;
+    }
+    setDeleteTarget(null);
+    setSuccess(`${deleteTarget.name} and all related records were permanently deleted.`);
     load();
   }
 
@@ -385,6 +409,7 @@ export default function StudentsManager() {
             allStudents={students.filter((s) => !s.archivedAt)}
             showArchived={false}
             onArchive={archiveStudent}
+            onDeleteRequest={(id, name) => setDeleteTarget({ id, name })}
             onSiblingSaved={load}
             onError={setError}
             onSuccess={setSuccess}
@@ -403,6 +428,46 @@ export default function StudentsManager() {
         confirmLabel="Undo withdraw"
         onConfirm={confirmReinstate}
         onCancel={() => setReinstateTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete student permanently?"
+        destructive
+        confirmLabel={deleting ? "Deleting…" : "Delete all records"}
+        message={
+          deleteTarget ? (
+            <>
+              <p>
+                This permanently removes <strong>{deleteTarget.name}</strong> and
+                cannot be undone. All related data is deleted, including:
+              </p>
+              <ul className="list-inside list-disc space-y-0.5 pl-1">
+                <li>Active and past class enrollments</li>
+                <li>Attendance and makeup records</li>
+                <li>Contact details and notes on this student</li>
+              </ul>
+              <p>
+                To withdraw someone from a class but keep their history, use the{" "}
+                <a
+                  href="/enrollments"
+                  className="font-medium text-orange-700 hover:underline"
+                >
+                  Enrollments
+                </a>{" "}
+                tab instead — do not delete the student.
+              </p>
+            </>
+          ) : (
+            ""
+          )
+        }
+        onConfirm={() => {
+          if (!deleting) void confirmDeleteStudent();
+        }}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
       />
     </div>
   );

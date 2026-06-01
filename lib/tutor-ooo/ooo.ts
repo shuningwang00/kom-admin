@@ -1,3 +1,5 @@
+import { attachExpectedAttendance } from "@/lib/attendance/expected-counts";
+import { sessionActiveExpectedTotal } from "@/lib/attendance/relief-tutor-session";
 import { RELIEF_TUTOR_NEEDED_VALUE } from "@/lib/tutors/constants";
 import { getDb } from "@/lib/db/index";
 import { classSessions, classes, tutorOoo } from "@/lib/db/schema";
@@ -21,8 +23,12 @@ export async function createTutorOoo(params: {
   if (tutorClasses.length > 0) {
     const classIds = tutorClasses.map((c) => c.id);
     const sessions = await db
-      .select({ id: classSessions.id, reliefTutor: classSessions.reliefTutor })
+      .select({
+        session: classSessions,
+        class: classes,
+      })
       .from(classSessions)
+      .innerJoin(classes, eq(classSessions.classId, classes.id))
       .where(
         and(
           inArray(classSessions.classId, classIds),
@@ -31,7 +37,18 @@ export async function createTutorOoo(params: {
         ),
       );
 
-    const toFlag = sessions.filter((s) => !s.reliefTutor.trim()).map((s) => s.id);
+    const unassigned = sessions.filter(
+      (row) => !row.session.reliefTutor.trim(),
+    );
+    const withExpected = await attachExpectedAttendance(
+      unassigned.map((row) => ({
+        session: row.session,
+        class: row.class,
+      })),
+    );
+    const toFlag = withExpected
+      .filter((row) => sessionActiveExpectedTotal(row.expected) > 0)
+      .map((row) => row.session.id);
     if (toFlag.length > 0) {
       await db
         .update(classSessions)
@@ -41,6 +58,23 @@ export async function createTutorOoo(params: {
   }
 
   return ooo;
+}
+
+export async function updateTutorOoo(
+  id: string,
+  params: { startDate: string; endDate: string; reason: string },
+) {
+  const db = getDb();
+  const [row] = await db
+    .update(tutorOoo)
+    .set({
+      startDate: params.startDate,
+      endDate: params.endDate,
+      reason: params.reason,
+    })
+    .where(eq(tutorOoo.id, id))
+    .returning();
+  return row ?? null;
 }
 
 export async function deleteTutorOoo(id: string) {
@@ -60,13 +94,6 @@ export async function listTutorOoo(filter?: { tutorMatch?: string }) {
 }
 
 export async function listActiveTutors(): Promise<string[]> {
-  const db = getDb();
-  const rows = await db
-    .selectDistinct({ tutor: classes.tutor })
-    .from(classes)
-    .where(and(eq(classes.isActive, true)));
-  return rows
-    .map((r) => r.tutor.trim())
-    .filter(Boolean)
-    .sort();
+  const { listTutorOptions } = await import("@/lib/tutors/options");
+  return listTutorOptions();
 }
