@@ -1,3 +1,5 @@
+import type { UserRole } from "@/lib/auth/config";
+
 export type PeopleTabsConfig = {
   timeOff: boolean;
   availability: boolean;
@@ -35,11 +37,11 @@ export const PEOPLE_NAV_ITEMS = [
 export function filterPeopleNavItems(
   tabs: PeopleTabsConfig | undefined,
   opts: {
-    role: "owner" | "staff" | "tutor" | undefined;
+    role: UserRole | undefined;
     tutorCanViewPeople: boolean;
   },
 ): typeof PEOPLE_NAV_ITEMS[number][] {
-  if (!tabs || !opts.role) return [];
+  if (!tabs || !opts.role || opts.role === "relief_tutor") return [];
   return PEOPLE_NAV_ITEMS.filter((item) => {
     if (!tabs[item.tabKey]) return false;
     if (opts.role === "tutor" && item.tutorNeedsViewPeople && !opts.tutorCanViewPeople) {

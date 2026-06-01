@@ -17,6 +17,7 @@ import {
 } from "@/lib/enrollments/eligibility";
 import { listTrialLeadsForSession } from "@/lib/attendance/trial-lead-attendance";
 import { attachExpectedAttendance } from "@/lib/attendance/expected-counts";
+import type { UserRole } from "@/lib/auth/config";
 import { normalizeSessionReliefTutor } from "@/lib/attendance/relief-tutor-session";
 import { shouldMarkMakeupVisitor } from "@/lib/attendance/session-headcount";
 import type { SessionExpectedCounts } from "@/lib/attendance/session-expected-labels";
@@ -342,7 +343,7 @@ export type SessionDetailPayload = NonNullable<
 
 export function toSessionDetailResponse(
   detail: SessionDetailPayload,
-  role?: "owner" | "staff" | "tutor",
+  role?: UserRole,
 ) {
   return {
     session: {

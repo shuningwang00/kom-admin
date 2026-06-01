@@ -55,6 +55,7 @@ export async function POST(request: Request) {
       fullName?: string;
       tutorMatch?: string;
       role?: string;
+      alsoReliefTutor?: boolean;
     };
     const email = String(body.email ?? "").trim().toLowerCase();
     if (!email || !email.includes("@")) {
