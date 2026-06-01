@@ -1,9 +1,19 @@
 import type { getDb } from "@/lib/db/index";
-import { classes, importRuns } from "@/lib/db/schema";
+import { classes, importRuns, weekdayEnum } from "@/lib/db/schema";
 import { loadParsedClassesFromSheet } from "@/lib/classes-sheet/load";
 import { getClassesSpreadsheetId } from "@/lib/classes-sheet/config";
+import { parseDayToWeekday } from "@/lib/classes-sheet/parser";
 import { canonicalTimeLabel } from "@/lib/scheduling/time-slots";
+import type { Weekday } from "@/lib/scheduling/weekday";
 import { and, desc, eq } from "drizzle-orm";
+
+function coerceWeekday(raw: string): Weekday {
+  const lower = raw.trim().toLowerCase();
+  if ((weekdayEnum.enumValues as readonly string[]).includes(lower)) {
+    return lower as Weekday;
+  }
+  return parseDayToWeekday(raw) ?? "other";
+}
 
 type Db = ReturnType<typeof getDb>;
 
@@ -151,7 +161,7 @@ export async function restoreClassesFromBackup(db: Db): Promise<{ restored: numb
   }
 
   for (const row of backed) {
-    const weekday = row.weekday as (typeof classes.$inferInsert)["weekday"];
+    const weekday = coerceWeekday(row.weekday);
     const [existing] = await db
       .select({ id: classes.id })
       .from(classes)
