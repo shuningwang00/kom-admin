@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+  filterPeopleNavItems,
+  type PeopleTabsConfig,
+} from "@/lib/people/nav";
 
 const MOBILE_MAX = 767;
 const HEADER_ROW =
@@ -22,6 +26,7 @@ type MeResponse = {
   } | null;
   isOwner: boolean;
   permissions?: AppPermissions;
+  peopleTabs?: PeopleTabsConfig;
 };
 
 type HealthResponse = {
@@ -51,7 +56,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/attendance", label: "By day", roles: ["tutor"], permission: { role: "tutor", flag: "viewByDay" } },
   { href: "/attendance", label: "Attendance", roles: ["owner", "staff"] },
   { href: "/calendar", label: "Calendar", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewCalendar" } },
-  { href: "/people", label: "People", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewPeople" } },
   { href: "/makeup", label: "Makeup", roles: ["owner", "staff"] },
   { href: "/trials", label: "Trials", roles: ["owner", "staff"] },
   { href: "/students", label: "Students", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewStudents" } },
@@ -80,22 +84,33 @@ function MenuIcon() {
   );
 }
 
-function NavLink({
-  href,
-  label,
-  onNavigate,
-}: {
-  href: string;
-  label: string;
-  onNavigate?: () => void;
-}) {
-  const pathname = usePathname();
-  const active =
+function navLinkActive(pathname: string, href: string): boolean {
+  return (
     pathname === href ||
     (href !== "/attendance" && pathname.startsWith(`${href}/`)) ||
     (href === "/attendance" &&
       pathname.startsWith("/attendance") &&
-      !pathname.startsWith("/attendance/tutor"));
+      !pathname.startsWith("/attendance/tutor"))
+  );
+}
+
+const navLinkBase =
+  "block rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium";
+
+function NavLink({
+  href,
+  label,
+  onNavigate,
+  nested = false,
+}: {
+  href: string;
+  label: string;
+  onNavigate?: () => void;
+  /** Indented item under a sidebar group (e.g. People). */
+  nested?: boolean;
+}) {
+  const pathname = usePathname();
+  const active = navLinkActive(pathname, href);
 
   return (
     <Link
@@ -103,12 +118,88 @@ function NavLink({
       onClick={onNavigate}
       className={
         active
-          ? "block rounded-lg border-l-2 border-orange-500 bg-zinc-800 px-3 py-2.5 text-sm font-medium text-orange-400"
-          : "block rounded-lg border-l-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white"
+          ? `${navLinkBase} border-orange-500 bg-zinc-800 text-orange-400 ${
+              nested ? "ml-2 border-l-zinc-500" : ""
+            }`
+          : `${navLinkBase} text-zinc-400 hover:bg-zinc-800 hover:text-white ${
+              nested
+                ? "ml-2 border-l-zinc-600 text-zinc-500 hover:text-zinc-200"
+                : "border-transparent"
+            }`
       }
     >
       {label}
     </Link>
+  );
+}
+
+function PeopleChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
+        open ? "rotate-90" : ""
+      }`}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden
+    >
+      <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PeopleNavGroup({
+  items,
+  onNavigate,
+}: {
+  items: Array<{ href: string; label: string }>;
+  onNavigate?: () => void;
+}) {
+  const pathname = usePathname();
+  const inPeople = pathname.startsWith("/people");
+  const groupActive = items.some((item) => navLinkActive(pathname, item.href));
+  const [open, setOpen] = useState(inPeople);
+
+  useEffect(() => {
+    setOpen(inPeople);
+  }, [inPeople]);
+
+  return (
+    <div
+      className={`mt-1 space-y-0.5 rounded-lg border py-1 ${
+        groupActive || open
+          ? "border-zinc-700 bg-zinc-800/40"
+          : "border-zinc-800 bg-zinc-900/50"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (!inPeople) setOpen((v) => !v);
+        }}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold ${
+          groupActive
+            ? "text-zinc-100"
+            : "text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300"
+        }`}
+      >
+        <span>People</span>
+        <PeopleChevron open={open} />
+      </button>
+      {open &&
+        items.map((item) => (
+          <NavLink
+            key={item.href}
+            href={item.href}
+            label={item.label}
+            nested
+            onNavigate={onNavigate}
+          />
+        ))}
+    </div>
   );
 }
 
@@ -126,6 +217,7 @@ export default function AppShell({
   const [me, setMe] = useState<MeResponse | null>(_me);
   const [dbHealth, setDbHealth] = useState<HealthResponse | null>(_health);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [rosterAlertCount, setRosterAlertCount] = useState(0);
 
   // Run before paint to avoid sidebar flash on desktop.
   useLayoutEffect(() => {
@@ -162,6 +254,17 @@ export default function AppShell({
       });
   }, []);
 
+  useEffect(() => {
+    if (!me?.isOwner) return;
+    fetch("/api/admin-roster/alerts")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const n = (json?.conflictCount as number) ?? 0;
+        setRosterAlertCount(n);
+      })
+      .catch(() => setRosterAlertCount(0));
+  }, [me?.isOwner]);
+
   const role = me?.user?.role as "owner" | "staff" | "tutor" | undefined;
 
   const navItems = useMemo(
@@ -175,6 +278,23 @@ export default function AppShell({
       }),
     [role, me?.permissions],
   );
+
+  const peopleNavItems = useMemo(
+    () =>
+      filterPeopleNavItems(me?.peopleTabs, {
+        role,
+        tutorCanViewPeople: me?.permissions?.tutor?.viewPeople === true,
+      }),
+    [me?.peopleTabs, me?.permissions?.tutor?.viewPeople, role],
+  );
+
+  /** Sidebar block order: show People subsection after this nav item. */
+  const peopleNavAfterHref = useMemo(() => {
+    if (navItems.some((i) => i.href === "/calendar")) return "/calendar";
+    if (navItems.some((i) => i.href === "/attendance/tutor")) return "/attendance/tutor";
+    if (navItems.some((i) => i.href === "/attendance")) return "/attendance";
+    return navItems[0]?.href;
+  }, [navItems]);
 
   const closeSidebarOnMobile = useCallback(() => {
     if (isMobileViewport()) setSidebarOpen(false);
@@ -243,12 +363,20 @@ export default function AppShell({
           <>
             <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
               {navItems.map((item) => (
-                <NavLink
-                  key={`${item.href}-${item.label}`}
-                  href={item.href}
-                  label={item.label}
-                  onNavigate={closeSidebarOnMobile}
-                />
+                <div key={`${item.href}-${item.label}`}>
+                  <NavLink
+                    href={item.href}
+                    label={item.label}
+                    onNavigate={closeSidebarOnMobile}
+                  />
+                  {item.href === peopleNavAfterHref &&
+                    peopleNavItems.length > 0 && (
+                      <PeopleNavGroup
+                        items={peopleNavItems}
+                        onNavigate={closeSidebarOnMobile}
+                      />
+                    )}
+                </div>
               ))}
             </nav>
 
@@ -302,6 +430,15 @@ export default function AppShell({
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold leading-none text-white md:text-xl">
             {title}
           </h1>
+          {me?.isOwner && rosterAlertCount > 0 && (
+            <Link
+              href="/people/admin-roster"
+              className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-xs font-semibold text-zinc-900 hover:bg-amber-400"
+              title="Roster conflicts — staff availability changed after scheduling"
+            >
+              Roster {rosterAlertCount}
+            </Link>
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo-full-light.jpg"

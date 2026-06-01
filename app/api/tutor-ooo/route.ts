@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { isTutor, requireEffectiveUser } from "@/lib/auth/access";
+import { isOwner, isTutor, requireEffectiveUser } from "@/lib/auth/access";
 import { getTutorMatch } from "@/lib/auth/user";
 import {
   createTutorOoo,
@@ -45,12 +45,13 @@ export async function POST(request: Request) {
     if (!endDate) return jsonError("endDate is required.", 400);
     if (endDate < startDate) return jsonError("endDate must be on or after startDate.", 400);
 
-    // Tutors can only create OOO for themselves
     if (isTutor(user)) {
       const match = await getTutorMatch(user.email);
       if (!match || match.toUpperCase() !== tutorMatch.toUpperCase()) {
-        return jsonError("Tutors can only log OOO for themselves.", 403);
+        return jsonError("Tutors can only log time off for themselves.", 403);
       }
+    } else if (!isOwner(user)) {
+      return jsonError("Only tutors (for themselves) or the owner can add time off.", 403);
     }
 
     const ooo = await createTutorOoo({

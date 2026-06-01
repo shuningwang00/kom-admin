@@ -14,6 +14,7 @@ export function isExplicitAbsentNeed(
   updatedBy: string | null | undefined,
   makeupNote: string | null | undefined,
 ): boolean {
+  if (status === "absent_notified") return true;
   if (status !== "absent_pending") return false;
   if (isAutoCreatedAbsentPending(status, updatedBy)) return false;
   if (isWalkInAttendance(makeupNote)) return false;

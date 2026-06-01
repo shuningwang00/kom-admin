@@ -77,7 +77,7 @@ export async function listSessionsForDate(date: string, user: SessionUser) {
 
   let visible = rows;
   if (user.role !== "owner" && user.role !== "staff") {
-    const match = await getTutorMatch(user.email);
+    const match = await getTutorMatch(user); // uses cached tutorMatch — no DB hit
     visible = rows.filter(
       (r) =>
         tutorCanAccessClass(r.class.tutor, match) ||
@@ -126,7 +126,7 @@ export async function listTutorSessionsOverview(user: SessionUser) {
   const match =
     user.role === "owner" || user.role === "staff"
       ? ""
-      : await getTutorMatch(user.email);
+      : await getTutorMatch(user); // uses cached tutorMatch — no DB hit
   const roleFiltered =
     user.role === "owner" || user.role === "staff"
       ? rows
@@ -202,7 +202,7 @@ export async function listUnmarkedPastSessions(
 
   let visible = rows;
   if (user.role !== "owner" && user.role !== "staff") {
-    const match = await getTutorMatch(user.email);
+    const match = await getTutorMatch(user); // uses cached tutorMatch — no DB hit
     visible = rows.filter(
       (r) =>
         tutorCanAccessClass(r.class.tutor, match) ||

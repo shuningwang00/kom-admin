@@ -33,6 +33,7 @@ export const weekdayEnum = pgEnum("weekday", [
 export const attendanceStatusEnum = pgEnum("attendance_status", [
   "present",
   "absent_pending",
+  "absent_notified",
   "waive",
   "pause",
   "free_trial",
@@ -287,6 +288,59 @@ export const auditLogs = pgTable(
       .defaultNow(),
   },
   (t) => [index("audit_logs_created_idx").on(t.createdAt)],
+);
+
+/** When a staff member is available for admin duty (by calendar date). */
+export const staffAvailability = pgTable(
+  "staff_availability",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffEmail: text("staff_email").notNull(),
+    availDate: date("avail_date").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    slotLabel: text("slot_label").notNull().default(""),
+    note: text("note").notNull().default(""),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("staff_avail_email_date_idx").on(t.staffEmail, t.availDate),
+    uniqueIndex("staff_avail_email_date_start_uidx").on(
+      t.staffEmail,
+      t.availDate,
+      t.startTime,
+    ),
+  ],
+);
+
+/** Published admin-on-duty shifts (owner-built from availability). */
+export const adminRosterShift = pgTable(
+  "admin_roster_shift",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shiftDate: date("shift_date").notNull(),
+    staffEmail: text("staff_email").notNull(),
+    staffName: text("staff_name").notNull().default(""),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    published: boolean("published").notNull().default(false),
+    createdBy: text("created_by").notNull().default(""),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("admin_roster_date_idx").on(t.shiftDate),
+    index("admin_roster_staff_idx").on(t.staffEmail),
+  ],
 );
 
 export const tutorOoo = pgTable(

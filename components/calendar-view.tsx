@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { CalendarMonthData, CalendarSessionItem } from "@/lib/calendar/month-data";
+import type {
+  CalendarAdminShift,
+  CalendarMonthData,
+  CalendarSessionItem,
+  DayCoverageStatus,
+} from "@/lib/calendar/month-data";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -114,6 +119,23 @@ function SessionChip({ session }: { session: CalendarSessionItem }) {
   );
 }
 
+function AdminShiftChip({ shift }: { shift: CalendarAdminShift }) {
+  return (
+    <div
+      className="truncate rounded border border-violet-300 bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-900"
+      title={`Admin: ${shift.staffName} ${shift.startTime}–${shift.endTime}`}
+    >
+      {shift.staffName} {shift.startTime}–{shift.endTime}
+    </div>
+  );
+}
+
+function coverageDayClass(status: DayCoverageStatus): string {
+  if (status === "no_admin_no_class") return "bg-orange-50";
+  if (status === "no_admin_has_class") return "bg-red-50";
+  return "bg-white";
+}
+
 // ─── month grid ──────────────────────────────────────────────────────────────
 
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -121,9 +143,13 @@ const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function MonthGrid({
   data,
   onWeekClick,
+  showLessons,
+  showAdmin,
 }: {
   data: CalendarMonthData;
   onWeekClick: (weekStart: string) => void;
+  showLessons: boolean;
+  showAdmin: boolean;
 }) {
   const today = localIso(new Date());
   const firstDay = data.days[0]?.date;
@@ -153,10 +179,14 @@ function MonthGrid({
             return <div key={`blank-${idx}`} className="min-h-24 bg-zinc-50" />;
           }
           const isToday = cell.date === today;
+          const day = data.days.find((d) => d.date === cell.date);
+          const coverage = day?.coverageStatus ?? "ok";
+          const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
+          const sessions = showLessons ? cell.sessions : [];
           return (
             <div
               key={cell.date}
-              className="min-h-24 cursor-pointer bg-white p-1.5 hover:bg-zinc-50"
+              className={`min-h-24 cursor-pointer p-1.5 hover:opacity-90 ${coverageDayClass(coverage)}`}
               onClick={() => onWeekClick(getWeekStart(cell.date!))}
             >
               <div className="mb-1 flex items-center justify-between">
@@ -169,20 +199,21 @@ function MonthGrid({
                 >
                   {isoToDayNum(cell.date)}
                 </span>
-                {cell.sessions.some((s) => s.status === "red") && (
+                {sessions.some((s) => s.status === "red") && (
                   <span className="text-xs text-red-500" title="Relief tutor needed">
                     ⚑
                   </span>
                 )}
               </div>
               <div className="flex flex-col gap-0.5">
-                {cell.sessions.slice(0, 3).map((s) => (
+                {adminShifts.slice(0, 2).map((s) => (
+                  <AdminShiftChip key={s.id} shift={s} />
+                ))}
+                {sessions.slice(0, 3).map((s) => (
                   <SessionChip key={s.sessionId} session={s} />
                 ))}
-                {cell.sessions.length > 3 && (
-                  <span className="text-xs text-zinc-400">
-                    +{cell.sessions.length - 3} more
-                  </span>
+                {(adminShifts.length + sessions.length) > 5 && (
+                  <span className="text-xs text-zinc-400">+more</span>
                 )}
               </div>
             </div>
@@ -201,12 +232,16 @@ function WeekView({
   onBack,
   onPrevWeek,
   onNextWeek,
+  showLessons,
+  showAdmin,
 }: {
   weekStart: string;
   data: CalendarMonthData;
   onBack: () => void;
   onPrevWeek: () => void;
   onNextWeek: () => void;
+  showLessons: boolean;
+  showAdmin: boolean;
 }) {
   const weekDays: string[] = [];
   const d = new Date(weekStart + "T00:00:00");
@@ -215,7 +250,7 @@ function WeekView({
     d.setDate(d.getDate() + 1);
   }
 
-  const dayMap = new Map(data.days.map((day) => [day.date, day.sessions]));
+  const dayMap = new Map(data.days.map((day) => [day.date, day]));
   const today = localIso(new Date());
 
   return (
@@ -253,14 +288,27 @@ function WeekView({
       <div className="overflow-x-auto">
         <div className="grid min-w-[640px] grid-cols-7 gap-2">
           {weekDays.map((iso) => {
-            const sessions = dayMap.get(iso) ?? [];
+            const day = dayMap.get(iso);
+            const sessions = showLessons ? (day?.sessions ?? []) : [];
+            const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
             const isToday = iso === today;
             const hasRed = sessions.some((s) => s.status === "red");
+            const cov = day?.coverageStatus ?? "ok";
 
             return (
               <div
                 key={iso}
-                className={`rounded-xl border p-2 ${isToday ? "border-orange-300 bg-orange-50" : hasRed ? "border-red-200 bg-red-50/30" : "border-zinc-200 bg-white"}`}
+                className={`rounded-xl border p-2 ${
+                  isToday
+                    ? "border-orange-300 bg-orange-50"
+                    : cov === "no_admin_has_class"
+                      ? "border-red-300 bg-red-50"
+                      : cov === "no_admin_no_class"
+                        ? "border-orange-200 bg-orange-50"
+                        : hasRed
+                          ? "border-red-200 bg-red-50/30"
+                          : "border-zinc-200 bg-white"
+                }`}
               >
                 <div className="mb-2 text-center">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -273,10 +321,13 @@ function WeekView({
                   </div>
                 </div>
 
-                {sessions.length === 0 ? (
+                {adminShifts.length === 0 && sessions.length === 0 ? (
                   <p className="text-center text-xs text-zinc-300">—</p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
+                    {adminShifts.map((s) => (
+                      <AdminShiftChip key={s.id} shift={s} />
+                    ))}
                     {sessions.map((s) => (
                       <Link
                         key={s.sessionId}
@@ -335,12 +386,59 @@ function WeekView({
 
 // ─── legend ──────────────────────────────────────────────────────────────────
 
+function ListView({
+  data,
+  showLessons,
+  showAdmin,
+}: {
+  data: CalendarMonthData;
+  showLessons: boolean;
+  showAdmin: boolean;
+}) {
+  return (
+    <ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white">
+      {data.days.map((day) => {
+        const sessions = showLessons ? day.sessions : [];
+        const admin = showAdmin ? day.adminShifts : [];
+        if (sessions.length === 0 && admin.length === 0) return null;
+        return (
+          <li key={day.date} className={`px-4 py-3 ${coverageDayClass(day.coverageStatus)}`}>
+            <p className="text-sm font-semibold text-zinc-800">
+              {isoToDayOfWeek(day.date)} {isoToDayNum(day.date)}
+            </p>
+            <div className="mt-2 flex flex-col gap-1">
+              {admin.map((s) => (
+                <AdminShiftChip key={s.id} shift={s} />
+              ))}
+              {sessions.map((s) => (
+                <SessionChip key={s.sessionId} session={s} />
+              ))}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function Legend() {
   return (
     <div className="flex flex-wrap gap-4 text-xs text-zinc-600">
       <div className="flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded border border-violet-300 bg-violet-100" />
+        Admin duty
+      </div>
+      <div className="flex items-center gap-1.5">
         <span className="h-3 w-3 rounded border border-orange-200 bg-orange-50" />
-        Normal
+        No admin (no class)
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded border border-red-200 bg-red-50" />
+        No admin (has class)
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded border border-orange-200 bg-orange-50" />
+        Lesson
       </div>
       <div className="flex items-center gap-1.5">
         <span className="h-3 w-3 rounded border border-sky-300 bg-sky-100" />
@@ -371,6 +469,9 @@ export default function CalendarView() {
   const [error, setError] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<string | null>(null);
   const [hideInactive, setHideInactive] = useState(true);
+  const [showLessons, setShowLessons] = useState(true);
+  const [showAdmin, setShowAdmin] = useState(true);
+  const [viewMode, setViewMode] = useState<"month" | "week" | "list">("month");
 
   useEffect(() => {
     setLoading(true);
@@ -464,6 +565,24 @@ export default function CalendarView() {
           )}
           <button
             type="button"
+            onClick={() => setShowLessons((v) => !v)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              showLessons ? "border-orange-300 bg-orange-50 text-orange-800" : "border-zinc-200 text-zinc-500"
+            }`}
+          >
+            Lessons
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAdmin((v) => !v)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              showAdmin ? "border-violet-300 bg-violet-50 text-violet-800" : "border-zinc-200 text-zinc-500"
+            }`}
+          >
+            Admin roster
+          </button>
+          <button
+            type="button"
             onClick={() => setHideInactive((v) => !v)}
             className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
               hideInactive
@@ -473,6 +592,26 @@ export default function CalendarView() {
           >
             {hideInactive ? "Active classes only" : "Show all classes"}
           </button>
+          <div className="flex rounded-lg border border-zinc-200 p-0.5 text-xs">
+            {(["month", "week", "list"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setViewMode(m);
+                  if (m === "week" && !weekStart && data?.days[0]) {
+                    setWeekStart(getWeekStart(data.days[0].date));
+                  }
+                  if (m === "month") setWeekStart(null);
+                }}
+                className={`rounded-md px-2.5 py-1 capitalize ${
+                  viewMode === m ? "bg-zinc-800 text-white" : "text-zinc-600"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -484,17 +623,26 @@ export default function CalendarView() {
           {error}
         </div>
       ) : displayData ? (
-        weekStart ? (
+        viewMode === "list" ? (
+          <ListView data={displayData} showLessons={showLessons} showAdmin={showAdmin} />
+        ) : viewMode === "week" && weekStart ? (
           <WeekView
             weekStart={weekStart}
             data={displayData}
-            onBack={() => setWeekStart(null)}
+            onBack={() => { setWeekStart(null); setViewMode("month"); }}
             onPrevWeek={() => navigateWeek(-1)}
             onNextWeek={() => navigateWeek(1)}
+            showLessons={showLessons}
+            showAdmin={showAdmin}
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-zinc-200">
-            <MonthGrid data={displayData} onWeekClick={setWeekStart} />
+            <MonthGrid
+              data={displayData}
+              onWeekClick={(ws) => { setWeekStart(ws); setViewMode("week"); }}
+              showLessons={showLessons}
+              showAdmin={showAdmin}
+            />
           </div>
         )
       ) : null}

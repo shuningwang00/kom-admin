@@ -31,6 +31,8 @@ export function statusDisplayLabel(
       return "Present";
     case "absent_pending":
       return "Absent";
+    case "absent_notified":
+      return "Needs M/U";
     case "waive":
       return "Waive";
     case "pause":
@@ -61,6 +63,10 @@ export const STATUS_BUTTON_STYLES: Record<AttendanceStatus, StatusButtonStyle> =
     absent_pending: {
       selected: "bg-red-600 text-white ring-2 ring-red-700/40",
       idle: "border border-red-200 bg-red-50 text-red-800 hover:bg-red-100",
+    },
+    absent_notified: {
+      selected: "bg-amber-500 text-amber-950 ring-2 ring-amber-600/40",
+      idle: "border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
     },
     waive: {
       selected: "bg-zinc-600 text-white ring-2 ring-zinc-500/40",

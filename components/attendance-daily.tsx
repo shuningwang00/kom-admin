@@ -10,7 +10,7 @@ import {
 import { isReliefTutorNeeded } from "@/lib/tutors/constants";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type SessionRow = {
   session: {
@@ -26,8 +26,8 @@ type SessionRow = {
 };
 
 function expectedLabelColor(label: string): string {
-  if (!label || label.startsWith("0 ")) return "text-red-600";
   if (label.includes("M/U")) return "text-amber-500";
+  if (!label || label.startsWith("0 ")) return "text-red-600";
   return "text-blue-600";
 }
 
@@ -46,7 +46,6 @@ export default function AttendanceDaily() {
   const [error, setError] = useState("");
   const [role, setRole] = useState<string>("admin");
   const [canGenerateSessions, setCanGenerateSessions] = useState(false);
-  const permFetched = useRef(false);
   const [showUnmarkedPast, setShowUnmarkedPast] = useState(false);
   const [unmarkedPast, setUnmarkedPast] = useState<SessionRow[]>([]);
   const [unmarkedLoading, setUnmarkedLoading] = useState(false);
@@ -65,28 +64,17 @@ export default function AttendanceDaily() {
     const data = (await res.json()) as {
       sessions: SessionRow[];
       role: string;
+      canGenerateSessions: boolean;
     };
     setSessions(data.sessions);
     setRole(data.role);
+    setCanGenerateSessions(data.canGenerateSessions ?? false);
   }, [date]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (permFetched.current) return;
-    permFetched.current = true;
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { user?: { role?: string }; permissions?: { staff?: { generateSessions?: boolean } } } | null) => {
-        if (!data) return;
-        const isOwner = data.user?.role === "owner";
-        const staffCanGenerate = data.permissions?.staff?.generateSessions === true;
-        setCanGenerateSessions(isOwner || staffCanGenerate);
-      })
-      .catch(() => { /* ignore */ });
-  }, []);
 
   const loadUnmarkedPast = useCallback(async () => {
     setUnmarkedLoading(true);

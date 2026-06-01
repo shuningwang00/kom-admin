@@ -17,7 +17,7 @@ import {
   classes,
   students,
 } from "@/lib/db/schema";
-import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 
 export type MakeupNeedRow = {
   studentId: string;
@@ -81,7 +81,7 @@ export async function listNeedsMakeupScheduling(
     .innerJoin(students, eq(attendanceRecords.studentId, students.id))
     .where(
       and(
-        eq(attendanceRecords.status, "absent_pending"),
+        inArray(attendanceRecords.status, ["absent_pending", "absent_notified"]),
         gte(classSessions.scheduledDate, since),
         isNull(students.archivedAt),
       ),

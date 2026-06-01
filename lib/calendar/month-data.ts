@@ -4,6 +4,7 @@ import { RELIEF_TUTOR_NEEDED_VALUE } from "@/lib/tutors/constants";
 import { formatCalendarDate, parseYearMonth } from "@/lib/dates/calendar";
 import { getDb } from "@/lib/db/index";
 import { classSessions, classes, tutorOoo } from "@/lib/db/schema";
+import { listRosterShifts } from "@/lib/people/admin-roster";
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 
 export type CalendarSessionStatus = "normal" | "blue" | "grey" | "inactive" | "red";
@@ -26,9 +27,21 @@ export type CalendarSessionItem = {
   rescheduleNote: string;
 };
 
+export type CalendarAdminShift = {
+  id: string;
+  staffEmail: string;
+  staffName: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type DayCoverageStatus = "ok" | "no_admin_no_class" | "no_admin_has_class";
+
 export type CalendarDayData = {
   date: string;
   sessions: CalendarSessionItem[];
+  adminShifts: CalendarAdminShift[];
+  coverageStatus: DayCoverageStatus;
 };
 
 export type CalendarOooRecord = {
@@ -141,11 +154,33 @@ export async function loadCalendarMonth(yearMonth: string): Promise<CalendarMont
     });
   }
 
-  // Build full month day array
+  const publishedShifts = await listRosterShifts(db, yearMonth, {
+    publishedOnly: true,
+  });
+  const adminByDate = new Map<string, CalendarAdminShift[]>();
+  for (const s of publishedShifts) {
+    if (!adminByDate.has(s.shiftDate)) adminByDate.set(s.shiftDate, []);
+    adminByDate.get(s.shiftDate)!.push({
+      id: s.id,
+      staffEmail: s.staffEmail,
+      staffName: s.staffName,
+      startTime: s.startTime,
+      endTime: s.endTime,
+    });
+  }
+
   const days: CalendarDayData[] = [];
   for (let day = 1; day <= lastDay; day++) {
     const iso = formatCalendarDate(year, month, day);
-    days.push({ date: iso, sessions: byDate.get(iso) ?? [] });
+    const sessions = byDate.get(iso) ?? [];
+    const adminShifts = adminByDate.get(iso) ?? [];
+    const hasClass = sessions.some((s) => s.status !== "inactive");
+    const hasAdmin = adminShifts.length > 0;
+    let coverageStatus: DayCoverageStatus = "ok";
+    if (!hasAdmin && hasClass) coverageStatus = "no_admin_has_class";
+    else if (!hasAdmin && !hasClass) coverageStatus = "no_admin_no_class";
+
+    days.push({ date: iso, sessions, adminShifts, coverageStatus });
   }
 
   return {

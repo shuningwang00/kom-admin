@@ -153,11 +153,6 @@ export async function loadSessionDetail(sessionId: string) {
       }),
   );
 
-  const rosterForMakeup: SessionRosterStudent[] = rosterDeduped.map((r) => ({
-    id: r.student.id,
-    name: r.student.name,
-  }));
-
   const existing = await db
     .select()
     .from(attendanceRecords)
@@ -172,6 +167,14 @@ export async function loadSessionDetail(sessionId: string) {
     );
     if (picked) byStudent.set(studentId, picked);
   }
+
+  // Exclude students already saved as present — they don't need a makeup.
+  const rosterForMakeup: SessionRosterStudent[] = rosterDeduped
+    .filter(({ student }) => {
+      const rec = byStudent.get(student.id);
+      return !(rec && isSessionAttendanceSaved(rec) && rec.status === "present");
+    })
+    .map((r) => ({ id: r.student.id, name: r.student.name }));
   const rosterIds = new Set(rosterDeduped.map((r) => r.student.id));
   const defaultStatus: AttendanceStatus = "absent_pending";
 

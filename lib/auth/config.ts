@@ -18,8 +18,14 @@ export function isMasterAdminEmail(email: string): boolean {
 /** owner = you · staff = office admin · tutor = teacher */
 export type UserRole = "owner" | "staff" | "tutor";
 
+export type AllowlistRole = "staff" | "tutor" | "staff_tutor";
+
 export type SessionUser = {
   email: string;
   role: UserRole;
   displayName: string;
+  /** Populated from siteAllowlist on every session resolution — avoids extra DB round-trips. */
+  tutorMatch?: string;
+  permissionsJson?: string;
+  allowlistRole?: AllowlistRole | "owner";
 };

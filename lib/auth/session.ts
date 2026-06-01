@@ -1,4 +1,4 @@
-import type { SessionUser, UserRole } from "@/lib/auth/config";
+import type { AllowlistRole, SessionUser, UserRole } from "@/lib/auth/config";
 import { isOwnerEmail } from "@/lib/auth/config";
 import { normalizeLegacyRole } from "@/lib/auth/roles";
 import { getDb } from "@/lib/db/index";
@@ -13,27 +13,45 @@ export function hasSessionCookieValue(raw: string | undefined): boolean {
   return Boolean(raw?.trim());
 }
 
-export async function resolveRoleForEmail(
-  email: string,
-): Promise<UserRole | null> {
-  const normalized = email.trim().toLowerCase();
-  if (isOwnerEmail(normalized)) return "owner";
+type AllowlistResolved = {
+  role: UserRole;
+  allowlistRole: AllowlistRole | "owner";
+  tutorMatch: string;
+  permissionsJson: string;
+};
+
+async function resolveFromAllowlist(email: string): Promise<AllowlistResolved | null> {
+  if (isOwnerEmail(email)) {
+    return { role: "owner", allowlistRole: "owner", tutorMatch: "", permissionsJson: "" };
+  }
 
   const db = getDb();
   const [row] = await db
-    .select({ role: siteAllowlist.role })
+    .select({
+      role: siteAllowlist.role,
+      tutorMatch: siteAllowlist.tutorMatch,
+      permissionsJson: siteAllowlist.permissionsJson,
+    })
     .from(siteAllowlist)
-    .where(
-      and(
-        eq(siteAllowlist.email, normalized),
-        eq(siteAllowlist.isActive, true),
-      ),
-    )
+    .where(and(eq(siteAllowlist.email, email), eq(siteAllowlist.isActive, true)))
     .limit(1);
 
   if (!row) return null;
-  if (row.role === "staff" || row.role === "staff_tutor") return "staff";
-  return "tutor";
+  const allowlistRole = row.role as AllowlistRole;
+  const role: UserRole =
+    allowlistRole === "staff" || allowlistRole === "staff_tutor" ? "staff" : "tutor";
+  return {
+    role,
+    allowlistRole,
+    tutorMatch: row.tutorMatch ?? "",
+    permissionsJson: row.permissionsJson ?? "",
+  };
+}
+
+/** @deprecated use resolveFromAllowlist */
+export async function resolveRoleForEmail(email: string): Promise<UserRole | null> {
+  const resolved = await resolveFromAllowlist(email.trim().toLowerCase());
+  return resolved?.role ?? null;
 }
 
 export async function setSessionCookie(user: SessionUser) {
@@ -57,16 +75,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const raw = jar.get(SESSION_COOKIE)?.value;
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as SessionUser & { role: string };
+    const parsed = JSON.parse(raw) as { email?: string; displayName?: string };
     if (!parsed.email) return null;
 
-    const role = await resolveRoleForEmail(parsed.email);
-    if (!role) return null;
+    const resolved = await resolveFromAllowlist(parsed.email.trim().toLowerCase());
+    if (!resolved) return null;
 
     return {
       email: parsed.email.toLowerCase(),
-      role,
+      role: resolved.role,
       displayName: parsed.displayName ?? "",
+      tutorMatch: resolved.tutorMatch,
+      permissionsJson: resolved.permissionsJson,
+      allowlistRole: resolved.allowlistRole,
     };
   } catch {
     return null;

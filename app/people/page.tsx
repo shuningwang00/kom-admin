@@ -1,10 +1,18 @@
-import AppShell from "@/components/app-shell";
-import PeopleManager from "@/components/people-manager";
+import { isOwnerEmail } from "@/lib/auth/config";
+import { getEffectiveUser } from "@/lib/auth/user";
+import { redirect } from "next/navigation";
 
-export default function PeoplePage() {
-  return (
-    <AppShell title="People">
-      <PeopleManager />
-    </AppShell>
-  );
+export const dynamic = "force-dynamic";
+
+export default async function PeopleIndexPage() {
+  const user = await getEffectiveUser();
+  if (!user) redirect("/login");
+
+  if (isOwnerEmail(user.email) || user.role === "owner") {
+    redirect("/people/admin-roster");
+  }
+  if (user.allowlistRole === "staff" || user.allowlistRole === "staff_tutor") {
+    redirect("/people/availability");
+  }
+  redirect("/people/time-off");
 }

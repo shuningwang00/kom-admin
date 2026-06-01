@@ -31,26 +31,23 @@ export async function GET() {
       .where(eq(siteAllowlist.isActive, true))
       .orderBy(asc(siteAllowlist.fullName));
 
+    const allDefaults: Record<string, boolean> = {
+      ...(perms.tutor as Record<string, boolean>),
+      ...(perms.staff as Record<string, boolean>),
+    };
+
     const members = rows.map((row) => {
-      const effectiveRole =
-        row.role === "staff" || row.role === "staff_tutor" ? "staff" : "tutor";
       let userOverride: Record<string, boolean> = {};
       if (row.permissionsJson) {
         try { userOverride = JSON.parse(row.permissionsJson) as Record<string, boolean>; } catch {}
       }
-      const basePerms: Record<string, boolean> =
-        effectiveRole === "tutor"
-          ? { ...(perms.tutor as Record<string, boolean>) }
-          : { ...(perms.staff as Record<string, boolean>) };
-      const resolvedPerms = { ...basePerms, ...userOverride };
-
       return {
         id: row.id,
         email: row.email,
         name: row.tutorMatch || row.displayName || row.fullName || row.email,
-        role: effectiveRole as "tutor" | "staff",
+        role: row.role as "tutor" | "staff" | "staff_tutor",
         tutorMatch: row.tutorMatch,
-        resolvedPerms,
+        resolvedPerms: { ...allDefaults, ...userOverride },
       };
     });
 

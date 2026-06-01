@@ -43,6 +43,13 @@ function addToExpected(
   sessionDate: string,
   record: SessionAttendanceRecord | undefined,
 ): void {
+  const status = (record?.status ?? "absent_pending") as AttendanceStatus;
+
+  if (status === "absent_notified") {
+    expected.notified = (expected.notified ?? 0) + 1;
+    return;
+  }
+
   const trialDay = student.trialAttendedAt?.trim()
     ? sessionIsoDate(student.trialAttendedAt)
     : null;
@@ -51,7 +58,6 @@ function addToExpected(
     return;
   }
 
-  const status = (record?.status ?? "absent_pending") as AttendanceStatus;
   const makeupNote = record?.makeupNote ?? "";
   if (isMuLessonAttendee(sessionDate, status, makeupNote)) {
     expected.makeup += 1;
@@ -291,7 +297,7 @@ export function assertPreviewMatchesMarking(
   expected: SessionExpectedCounts,
   studentsToMark: string[],
 ): void {
-  const previewTotal = expected.regular + expected.trial + expected.makeup;
+  const previewTotal = expected.regular + expected.trial + expected.makeup + (expected.notified ?? 0);
   const markTotal = studentsToMark.length;
   if (previewTotal !== markTotal) {
     throw new Error(

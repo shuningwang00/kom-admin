@@ -12,6 +12,7 @@ export const ATTENDANCE_STATUSES = attendanceStatusEnum.enumValues;
 export const STATUS_LABELS: Record<AttendanceStatus, string> = {
   present: "Present",
   absent_pending: "Absent (pending MU)",
+  absent_notified: "Needs M/U",
   waive: "Waive",
   pause: "Pause",
   free_trial: "Free trial",
@@ -25,6 +26,7 @@ export const STATUS_LABELS: Record<AttendanceStatus, string> = {
 export const SESSION_MARKING_STATUSES: AttendanceStatus[] = [
   "present",
   "absent_pending",
+  "absent_notified",
   "waive",
 ];
 

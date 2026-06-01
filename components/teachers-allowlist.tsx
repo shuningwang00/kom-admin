@@ -156,7 +156,7 @@ export default function TeamAllowlist() {
     member: tutorByMatch.get(name.toUpperCase()) ?? null,
   }));
 
-  const staffMembers = members.filter((m) => m.role === "staff");
+  const staffMembers = members.filter((m) => m.role === "staff" || m.role === "staff_tutor");
 
   const orphanedTutors = members.filter(
     (m) =>

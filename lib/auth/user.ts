@@ -11,7 +11,16 @@ export async function getEffectiveUser(): Promise<EffectiveUser | null> {
   return getSessionUser();
 }
 
-export async function getTutorMatch(email: string): Promise<string> {
+/**
+ * Returns the tutor's schedule name (e.g. "JUNYANG").
+ * Accepts either a full SessionUser (uses cached tutorMatch — no DB hit) or a raw email string.
+ */
+export async function getTutorMatch(emailOrUser: string | SessionUser): Promise<string> {
+  if (typeof emailOrUser !== "string") {
+    return emailOrUser.tutorMatch?.trim() ?? "";
+  }
+  const email = emailOrUser;
+  if (email === "owner@site") return "";
   const db = getDb();
   const [row] = await db
     .select({ tutorMatch: siteAllowlist.tutorMatch })

@@ -6,7 +6,7 @@ type Member = {
   id: string;
   email: string;
   name: string;
-  role: "tutor" | "staff";
+  role: "tutor" | "staff" | "staff_tutor";
   tutorMatch: string;
   resolvedPerms: Record<string, boolean>;
 };
@@ -68,31 +68,58 @@ function MemberCard({
   saving: string | null;
   onToggle: (memberId: string, flag: string, value: boolean) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const enabledCount = permRows.filter((r) => member.resolvedPerms[r.flag]).length;
+
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-100 px-4 py-3">
-        <p className="font-medium text-zinc-900">{member.name}</p>
-        <p className="text-xs text-zinc-400">{member.email}</p>
-      </div>
-      <div className="divide-y divide-zinc-50">
-        {permRows.map((row) => {
-          const val = member.resolvedPerms[row.flag] ?? false;
-          const key = `${member.id}:${row.flag}`;
-          return (
-            <div key={row.flag} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-zinc-800">{row.label}</p>
-                <p className="text-xs text-zinc-500">{row.description}</p>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <div className="min-w-0">
+          <p className="font-medium text-zinc-900">{member.name}</p>
+          <p className="text-xs text-zinc-400">{member.email}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {enabledCount > 0 && (
+            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+              {enabledCount} on
+            </span>
+          )}
+          <svg
+            className={`h-4 w-4 text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="divide-y divide-zinc-50 border-t border-zinc-100">
+          {permRows.map((row) => {
+            const val = member.resolvedPerms[row.flag] ?? false;
+            const key = `${member.id}:${row.flag}`;
+            return (
+              <div key={row.flag} className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-800">{row.label}</p>
+                  <p className="text-xs text-zinc-500">{row.description}</p>
+                </div>
+                <Toggle
+                  checked={val}
+                  onChange={(v) => onToggle(member.id, row.flag, v)}
+                  disabled={saving === key}
+                />
               </div>
-              <Toggle
-                checked={val}
-                onChange={(v) => onToggle(member.id, row.flag, v)}
-                disabled={saving === key}
-              />
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -146,8 +173,8 @@ export default function PermissionsManager() {
     }
   }
 
-  const tutors = members.filter((m) => m.role === "tutor");
-  const staff = members.filter((m) => m.role === "staff");
+  const tutors = members.filter((m) => m.role === "tutor" || m.role === "staff_tutor");
+  const staff = members.filter((m) => m.role === "staff" || m.role === "staff_tutor");
 
   if (loading) return <p className="text-sm text-zinc-500">Loading…</p>;
 

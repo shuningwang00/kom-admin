@@ -2,6 +2,8 @@ export type SessionExpectedCounts = {
   regular: number;
   trial: number;
   makeup: number;
+  /** Pre-notified absent students — excluded from billable expected but tracked for greying out. */
+  notified?: number;
 };
 
 export function formatAttendanceMarkLabel(
@@ -33,14 +35,23 @@ export function formatExpectedAttendancePreview(
   return `${parts.join(" + ")} expected`;
 }
 
-/** Daily list: expected headcount plus waived already saved (still on session roster). */
+/** Daily list: expected headcount plus waived/notified modifiers. */
 export function formatSessionExpectedLabel(
   expected: SessionExpectedCounts,
   waivedCount: number,
 ): string {
-  const base = formatExpectedAttendancePreview(expected);
-  if (waivedCount <= 0) return base;
-  const waived =
-    waivedCount === 1 ? "1 waived" : `${waivedCount} waived`;
-  return `${base} · ${waived}`;
+  const notifiedCount = expected.notified ?? 0;
+  const activeTotal = expected.regular + expected.trial + expected.makeup;
+  const parts: string[] = [];
+
+  if (activeTotal > 0 || notifiedCount === 0) {
+    parts.push(formatExpectedAttendancePreview(expected));
+  }
+  if (notifiedCount > 0) {
+    parts.push(notifiedCount === 1 ? "1 Needs M/U" : `${notifiedCount} Needs M/U`);
+  }
+  if (waivedCount > 0) {
+    parts.push(waivedCount === 1 ? "1 waived" : `${waivedCount} waived`);
+  }
+  return parts.join(" · ");
 }
