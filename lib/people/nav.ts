@@ -6,6 +6,7 @@ export type PeopleTabsConfig = {
   adminRoster: boolean;
   clock: boolean;
   payroll: boolean;
+  claims: boolean;
 };
 
 export const PEOPLE_NAV_ITEMS = [
@@ -38,6 +39,12 @@ export const PEOPLE_NAV_ITEMS = [
     label: "Payroll",
     tabKey: "payroll" as const,
     tutorNeedsViewPeople: true,
+  },
+  {
+    href: "/people/claims",
+    label: "Claims",
+    tabKey: "claims" as const,
+    tutorNeedsViewPeople: false,
   },
 ] as const;
 

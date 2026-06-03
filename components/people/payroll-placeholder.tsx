@@ -16,6 +16,12 @@ type StaffMember = {
   hourlyRate: string;
 };
 
+type Claim = {
+  staffEmail: string;
+  amount: string;
+  status: string;
+};
+
 function prevMonth(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m - 2, 1);
@@ -54,6 +60,7 @@ export default function PayrollPlaceholder() {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [selfStaff, setSelfStaff] = useState<StaffMember | null>(null);
   const [isOwnerView, setIsOwnerView] = useState(false);
+  const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -65,14 +72,17 @@ export default function PayrollPlaceholder() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const res = await fetch(`/api/clock?month=${month}`);
+    const [clockRes, claimsRes] = await Promise.all([
+      fetch(`/api/clock?month=${month}`),
+      fetch(`/api/claims?month=${month}&status=approved`),
+    ]);
     setLoading(false);
-    if (!res.ok) {
-      const d = (await res.json()) as { error?: string };
+    if (!clockRes.ok) {
+      const d = (await clockRes.json()) as { error?: string };
       setError(d.error ?? "Failed to load");
       return;
     }
-    const data = (await res.json()) as {
+    const data = (await clockRes.json()) as {
       entries: ClockEntry[];
       staff: StaffMember[];
       isOwner: boolean;
@@ -82,6 +92,10 @@ export default function PayrollPlaceholder() {
     setStaffList(data.staff);
     setSelfStaff(data.selfStaff ?? null);
     setIsOwnerView(data.isOwner);
+    if (claimsRes.ok) {
+      const claimsData = (await claimsRes.json()) as { claims: Claim[] };
+      setClaims(claimsData.claims ?? []);
+    }
   }, [month]);
 
   useEffect(() => {
@@ -126,10 +140,15 @@ export default function PayrollPlaceholder() {
     );
     const rateNum = parseFloat(rate);
     const pay = !isNaN(rateNum) && rateNum > 0 ? totalHours * rateNum : null;
-    return { email, name, rate, totalHours, pay, sessionCount: staffEntries.length };
-  }).filter((r) => r.sessionCount > 0 || isOwnerView);
+    const claimsTotal = claims
+      .filter((c) => c.staffEmail === email)
+      .reduce((sum, c) => sum + parseFloat(c.amount), 0);
+    return { email, name, rate, totalHours, pay, sessionCount: staffEntries.length, claimsTotal };
+  }).filter((r) => r.sessionCount > 0 || r.claimsTotal > 0 || isOwnerView);
 
-  const grandTotal = summaryRows.reduce((sum, r) => sum + (r.pay ?? 0), 0);
+  const grandPayTotal = summaryRows.reduce((sum, r) => sum + (r.pay ?? 0), 0);
+  const grandClaimsTotal = summaryRows.reduce((sum, r) => sum + r.claimsTotal, 0);
+  const grandTotal = grandPayTotal + grandClaimsTotal;
 
   return (
     <div className="space-y-6">
@@ -176,6 +195,8 @@ export default function PayrollPlaceholder() {
                 <th className="px-4 py-2 text-right">Hours</th>
                 <th className="px-4 py-2 text-right">Rate/hr</th>
                 <th className="px-4 py-2 text-right">Pay</th>
+                <th className="px-4 py-2 text-right">Claims</th>
+                <th className="px-4 py-2 text-right">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -238,14 +259,28 @@ export default function PayrollPlaceholder() {
                       <span className="text-zinc-400">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-right text-zinc-700">
+                    {row.claimsTotal > 0 ? `S$${row.claimsTotal.toFixed(2)}` : <span className="text-zinc-400">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-zinc-900">
+                    {(row.pay !== null || row.claimsTotal > 0)
+                      ? `S$${((row.pay ?? 0) + row.claimsTotal).toFixed(2)}`
+                      : <span className="text-zinc-400">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
             {isOwnerView && grandTotal > 0 && (
               <tfoot>
                 <tr className="border-t border-zinc-200 bg-zinc-50">
-                  <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-zinc-700">Total</td>
+                  <td colSpan={isOwnerView ? 4 : 3} className="px-4 py-3 text-sm font-semibold text-zinc-700">Total</td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-zinc-900">
+                    {grandPayTotal > 0 ? `S$${grandPayTotal.toFixed(2)}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-bold text-zinc-900">
+                    {grandClaimsTotal > 0 ? `S$${grandClaimsTotal.toFixed(2)}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-bold text-orange-700">
                     S${grandTotal.toFixed(2)}
                   </td>
                 </tr>

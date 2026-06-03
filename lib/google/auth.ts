@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { cookies } from "next/headers";
 
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
 const USERINFO_PROFILE_SCOPE =
   "https://www.googleapis.com/auth/userinfo.profile";
@@ -64,7 +65,7 @@ export async function getGoogleAuthClient() {
     };
     return new google.auth.GoogleAuth({
       credentials,
-      scopes: [SHEETS_SCOPE],
+      scopes: [SHEETS_SCOPE, DRIVE_FILE_SCOPE],
     });
   }
 
@@ -84,8 +85,8 @@ export function getGoogleAuthUrl(mode: GoogleAuthMode = "sheets"): string {
   const oauth2 = createOAuthClient();
   const scopes =
     mode === "signin"
-      ? [SHEETS_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE, "openid"]
-      : [SHEETS_SCOPE];
+      ? [SHEETS_SCOPE, DRIVE_FILE_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE, "openid"]
+      : [SHEETS_SCOPE, DRIVE_FILE_SCOPE];
   return oauth2.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",

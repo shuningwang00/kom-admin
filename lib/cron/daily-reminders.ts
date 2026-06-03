@@ -304,7 +304,7 @@ export async function buildDailyReminder(): Promise<string> {
     actionParts.push(`<b>Relief needed (${reliefNeeded.length})</b>\n${lines.join("\n")}`);
   }
   const actionSection = actionParts.length
-    ? `\n📋 <b>Action needed</b>\n${actionParts.join("\n\n")}`
+    ? `\n🏃 <b>Action needed</b>\n${actionParts.join("\n\n")}`
     : "";
 
   // Upcoming scheduled makeups (future, not yet complete)

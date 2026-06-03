@@ -160,10 +160,12 @@ function PeopleNavGroup({
   items,
   onNavigate,
   rosterAlertCount = 0,
+  pendingClaimsCount = 0,
 }: {
   items: Array<{ href: string; label: string }>;
   onNavigate?: () => void;
   rosterAlertCount?: number;
+  pendingClaimsCount?: number;
 }) {
   const pathname = usePathname();
   const inPeople = pathname.startsWith("/people");
@@ -190,9 +192,9 @@ function PeopleNavGroup({
       >
         <span>Human Resources</span>
         <span className="flex items-center gap-1.5">
-          {!open && rosterAlertCount > 0 && (
+          {!open && (rosterAlertCount > 0 || pendingClaimsCount > 0) && (
             <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-              {rosterAlertCount}
+              {rosterAlertCount + pendingClaimsCount}
             </span>
           )}
           <PeopleChevron open={open} />
@@ -206,7 +208,13 @@ function PeopleNavGroup({
             label={item.label}
             nested
             onNavigate={onNavigate}
-            badge={item.href === "/people/admin-roster" ? rosterAlertCount : undefined}
+            badge={
+              item.href === "/people/admin-roster"
+                ? rosterAlertCount
+                : item.href === "/people/claims"
+                ? pendingClaimsCount
+                : undefined
+            }
           />
         ))}
     </div>
@@ -324,6 +332,7 @@ export default function AppShell({
   const [dbHealth, setDbHealth] = useState<HealthResponse | null>(_health);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [rosterAlertCount, setRosterAlertCount] = useState(0);
+  const [pendingClaimsCount, setPendingClaimsCount] = useState(0);
   const [makeupNeedsCount, setMakeupNeedsCount] = useState(0);
   const [trialsActiveCount, setTrialsActiveCount] = useState(0);
 
@@ -371,6 +380,13 @@ export default function AppShell({
         setRosterAlertCount(n);
       })
       .catch(() => setRosterAlertCount(0));
+    fetch("/api/claims/pending-count")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const n = (json?.pendingCount as number) ?? 0;
+        setPendingClaimsCount(n);
+      })
+      .catch(() => setPendingClaimsCount(0));
   }, [me?.isOwner]);
 
   useEffect(() => {
@@ -523,6 +539,7 @@ export default function AppShell({
                         items={peopleNavItems}
                         onNavigate={closeSidebarOnMobile}
                         rosterAlertCount={rosterAlertCount}
+                        pendingClaimsCount={pendingClaimsCount}
                       />
                     )}
                   {item.href === "/billing" && role === "owner" && (

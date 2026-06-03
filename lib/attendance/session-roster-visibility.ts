@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db/index";
 import { attendanceRecords, classSessions } from "@/lib/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 
 export type { MakeupBooking } from "@/lib/attendance/makeup-session-rules";
 export {
@@ -51,10 +51,12 @@ export async function loadMakeupBookingsByStudent(
   return bookingsByStudent;
 }
 
-/** Load ALL makeup_scheduled bookings across all students. Use for bulk operations
- *  where student IDs aren't known in advance (avoids a sequential query dependency). */
+/** Load makeup_scheduled bookings across all students, from 20 days ago onwards. */
 export async function loadAllMakeupBookings(): Promise<Map<string, MakeupBooking[]>> {
   const db = getDb();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 20);
+  const fromDate = cutoff.toISOString().slice(0, 10);
   const bookingRows = await db
     .select({
       studentId: attendanceRecords.studentId,
@@ -64,7 +66,12 @@ export async function loadAllMakeupBookings(): Promise<Map<string, MakeupBooking
     })
     .from(attendanceRecords)
     .innerJoin(classSessions, eq(attendanceRecords.sessionId, classSessions.id))
-    .where(eq(attendanceRecords.status, "makeup_scheduled"));
+    .where(
+      and(
+        eq(attendanceRecords.status, "makeup_scheduled"),
+        gte(classSessions.scheduledDate, fromDate),
+      ),
+    );
 
   const bookingsByStudent = new Map<string, MakeupBooking[]>();
   for (const row of bookingRows) {

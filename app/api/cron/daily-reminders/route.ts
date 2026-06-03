@@ -4,7 +4,7 @@ import { sendDailyReminder } from "@/lib/cron/daily-reminders";
 export const dynamic = "force-dynamic";
 
 /**
- * Called daily by Vercel Cron at 02:00 UTC (10:00 SGT).
+ * Called daily by Vercel Cron at 11:00 UTC (19:00 SGT).
  * Vercel automatically sends: Authorization: Bearer {CRON_SECRET}
  */
 export async function GET(request: Request) {

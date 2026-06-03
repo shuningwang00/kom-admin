@@ -98,6 +98,7 @@ export const students = pgTable(
   (t) => [
     index("students_name_idx").on(t.name),
     index("students_billing_group_idx").on(t.billingGroupId),
+    index("students_archived_idx").on(t.archivedAt),
   ],
 );
 
@@ -161,6 +162,7 @@ export const trialLeads = pgTable(
   (t) => [
     index("trial_leads_status_idx").on(t.status),
     index("trial_leads_name_idx").on(t.name),
+    index("trial_leads_class_idx").on(t.classId),
   ],
 );
 
@@ -195,6 +197,7 @@ export const enrollments = pgTable(
   (t) => [
     index("enrollments_student_idx").on(t.studentId),
     index("enrollments_class_idx").on(t.classId),
+    index("enrollments_ended_idx").on(t.endedAt),
   ],
 );
 
@@ -282,6 +285,7 @@ export const attendanceRecords = pgTable(
       t.studentId,
     ),
     index("attendance_records_student_idx").on(t.studentId),
+    index("attendance_records_status_idx").on(t.status),
   ],
 );
 
@@ -530,6 +534,31 @@ export const holidayProgrammeAttendance = pgTable(
   (t) => [
     uniqueIndex("hpa_session_participant_uidx").on(t.sessionId, t.participantId),
     index("hpa_participant_idx").on(t.participantId),
+  ],
+);
+
+export const staffClaims = pgTable(
+  "staff_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffEmail: text("staff_email").notNull(),
+    staffName: text("staff_name").notNull().default(""),
+    claimDate: date("claim_date").notNull(),
+    amount: text("amount").notNull(),
+    category: text("category").notNull(),
+    description: text("description").notNull().default(""),
+    receiptFileId: text("receipt_file_id"),
+    receiptFileName: text("receipt_file_name"),
+    status: text("status").notNull().default("pending"),
+    rejectionReason: text("rejection_reason"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("staff_claims_email_idx").on(t.staffEmail),
+    index("staff_claims_status_idx").on(t.status),
+    index("staff_claims_date_idx").on(t.claimDate),
   ],
 );
 

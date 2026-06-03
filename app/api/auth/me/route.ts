@@ -51,6 +51,7 @@ export async function GET() {
       adminRoster: isOwner,
       clock: isOwner || ar === "staff" || ar === "staff_tutor",
       payroll: Boolean(user),
+      claims: Boolean(user),
     };
 
     return NextResponse.json({

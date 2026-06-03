@@ -9,6 +9,7 @@ type PeopleTabsConfig = {
   adminRoster: boolean;
   clock: boolean;
   payroll: boolean;
+  claims: boolean;
 };
 
 const DEFAULT_TABS: PeopleTabsConfig = {
@@ -17,6 +18,7 @@ const DEFAULT_TABS: PeopleTabsConfig = {
   adminRoster: false,
   clock: true,
   payroll: true,
+  claims: true,
 };
 
 export default function PeopleShell({ children }: { children: React.ReactNode }) {
