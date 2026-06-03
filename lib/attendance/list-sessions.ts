@@ -61,7 +61,7 @@ async function activeEnrollmentClassIds(
           .from(trialLeads)
           .where(
             and(
-              eq(trialLeads.status, "active"),
+              inArray(trialLeads.status, ["active", "converted", "declined"]),
               eq(trialLeads.trialDate, sessionDate),
               isNotNull(trialLeads.classId),
             ),

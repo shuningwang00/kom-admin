@@ -3,6 +3,7 @@ import { resolveRoleForEmail, setSessionCookie } from "@/lib/auth/session";
 import {
   exchangeCodeForTokens,
   fetchGoogleProfile,
+  saveRefreshTokenToDb,
   setRefreshTokenCookie,
   type GoogleAuthMode,
 } from "@/lib/google/auth";
@@ -32,6 +33,9 @@ export async function GET(request: Request) {
     const tokens = await exchangeCodeForTokens(code);
     if (tokens.refresh_token) {
       await setRefreshTokenCookie(tokens.refresh_token);
+      if (mode === "sheets") {
+        await saveRefreshTokenToDb(tokens.refresh_token);
+      }
     }
 
     if (mode === "signin" && tokens.access_token) {

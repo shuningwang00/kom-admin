@@ -11,6 +11,7 @@ import {
   type AttendanceStatus,
 } from "@/lib/attendance/status";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ContactFields } from "@/components/contact-fields";
 import { ReliefTutorField } from "@/components/relief-tutor-field";
 import {
   formatScheduledMakeupMissedLine,
@@ -98,6 +99,7 @@ type TrialLeadRow = {
   name: string;
   status: AttendanceStatus;
   attendanceSaved?: boolean;
+  trialStatus?: "active" | "converted" | "declined";
 };
 
 type SessionDetail = {
@@ -166,6 +168,59 @@ export default function SessionAttendancePanel({
     () => new Set(),
   );
   const skipMakeupClassDefaultsRef = useRef(false);
+
+  const emptyTrialForm = {
+    firstName: "",
+    lastName: "",
+    primaryContactType: "parent" as ContactType,
+    primaryContact: "",
+    secondaryContactType: "" as ContactType | "",
+    secondaryContact: "",
+    school: "",
+    parentName: "",
+    notes: "",
+  };
+  const [showTrialForm, setShowTrialForm] = useState(false);
+  const [trialForm, setTrialForm] = useState(emptyTrialForm);
+  const [trialFormSaving, setTrialFormSaving] = useState(false);
+  const [trialFormError, setTrialFormError] = useState("");
+
+  async function submitAddTrial(e: React.FormEvent) {
+    e.preventDefault();
+    if (!detail) return;
+    setTrialFormError("");
+    setTrialFormSaving(true);
+    try {
+      const res = await fetch("/api/trials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${trialForm.firstName.trim()} ${trialForm.lastName.trim()}`.trim(),
+          primaryContact: trialForm.primaryContact,
+          primaryContactType: trialForm.primaryContactType,
+          secondaryContact: trialForm.secondaryContact,
+          secondaryContactType: trialForm.secondaryContactType || null,
+          school: trialForm.school,
+          parentName: trialForm.parentName,
+          notes: trialForm.notes,
+          classId: detail.class.id,
+          trialDate: detail.session.scheduledDate,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setTrialFormError(data.error ?? "Failed to add trial.");
+        setTrialFormSaving(false);
+        return;
+      }
+      setShowTrialForm(false);
+      setTrialForm(emptyTrialForm);
+      await load();
+    } catch {
+      setTrialFormError("Network error.");
+    }
+    setTrialFormSaving(false);
+  }
 
   function isAttendanceFullySaved(students: StudentRow[]): boolean {
     if (students.length === 0) return false;
@@ -344,7 +399,7 @@ export default function SessionAttendancePanel({
     if (!detail) return;
     const pending = studentsNeedingSave(detail.students, editingStudentIds);
     const trialPending = (detail.trialLeads ?? []).filter(
-      (row) => !row.attendanceSaved || editingTrialIds.has(row.trialLeadId),
+      (row) => (!row.trialStatus || row.trialStatus === "active") && (!row.attendanceSaved || editingTrialIds.has(row.trialLeadId)),
     );
     if (pending.length === 0 && trialPending.length === 0) return;
 
@@ -707,11 +762,12 @@ export default function SessionAttendancePanel({
       ) : (
         (() => {
           const trialLeads = detail.trialLeads ?? [];
+          const activeTrials = trialLeads.filter((r) => !r.trialStatus || r.trialStatus === "active");
           const allStudentsSaved = detail.students.length === 0 || isAttendanceFullySaved(detail.students);
-          const allTrialSaved = trialLeads.length === 0 || (trialLeads.every((r) => r.attendanceSaved) && editingTrialIds.size === 0);
+          const allTrialSaved = activeTrials.length === 0 || (activeTrials.every((r) => r.attendanceSaved) && editingTrialIds.size === 0);
           const allSaved = allStudentsSaved && allTrialSaved && editingStudentIds.size === 0;
           const pendingStudents = detail.students.filter((row) => !row.attendanceSaved);
-          const pendingTrials = trialLeads.filter((row) => !row.attendanceSaved);
+          const pendingTrials = activeTrials.filter((row) => !row.attendanceSaved);
           const totalPending = pendingStudents.length + pendingTrials.length;
           const sortedStudents = [...detail.students].sort((a, b) => {
             const aPending = !a.attendanceSaved ? 0 : 1;
@@ -721,7 +777,7 @@ export default function SessionAttendancePanel({
           });
           const hasPendingSave =
             studentsNeedingSave(detail.students, editingStudentIds).length > 0 ||
-            trialLeads.some((r) => !r.attendanceSaved || editingTrialIds.has(r.trialLeadId));
+            activeTrials.some((r) => !r.attendanceSaved || editingTrialIds.has(r.trialLeadId));
 
           return (
             <div
@@ -766,22 +822,124 @@ export default function SessionAttendancePanel({
                     </p>
                   )}
                 </div>
-                {!isCancelledSession && hasPendingSave && (
-                  <button
-                    type="button"
-                    onClick={saveAttendance}
-                    disabled={saving}
-                    className="shrink-0 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
-                  >
-                    {saving ? "Saving…" : "Save attendance"}
-                  </button>
-                )}
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {(detail.role === "owner" || detail.role === "staff") && !isCancelledSession && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowTrialForm((v) => !v); setTrialFormError(""); }}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {showTrialForm ? "Cancel" : "+ Trial"}
+                    </button>
+                  )}
+                  {!isCancelledSession && hasPendingSave && (
+                    <button
+                      type="button"
+                      onClick={saveAttendance}
+                      disabled={saving}
+                      className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
+                    >
+                      {saving ? "Saving…" : "Save attendance"}
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Add trial inline form */}
+              {showTrialForm && (
+                <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    New trial — {detail.class.label} · {detail.session.scheduledDate}
+                  </p>
+                  <form onSubmit={(e) => void submitAddTrial(e)} className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm">
+                      <span className="font-medium text-zinc-700">First name *</span>
+                      <input
+                        required
+                        value={trialForm.firstName}
+                        onChange={(e) => setTrialForm((f) => ({ ...f, firstName: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="font-medium text-zinc-700">Last name</span>
+                      <input
+                        value={trialForm.lastName}
+                        onChange={(e) => setTrialForm((f) => ({ ...f, lastName: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <ContactFields
+                      prefix="Primary"
+                      typeLabel="Primary contact"
+                      typeValue={trialForm.primaryContactType}
+                      numberValue={trialForm.primaryContact}
+                      onTypeChange={(v) => setTrialForm((f) => ({ ...f, primaryContactType: (v || "parent") as ContactType }))}
+                      onNumberChange={(v) => setTrialForm((f) => ({ ...f, primaryContact: v }))}
+                      required
+                    />
+                    <ContactFields
+                      prefix="Secondary"
+                      typeLabel="Secondary contact"
+                      typeValue={trialForm.secondaryContactType}
+                      numberValue={trialForm.secondaryContact}
+                      onTypeChange={(v) => setTrialForm((f) => ({ ...f, secondaryContactType: v }))}
+                      onNumberChange={(v) => setTrialForm((f) => ({ ...f, secondaryContact: v }))}
+                    />
+                    <label className="block text-sm">
+                      <span className="font-medium text-zinc-700">School</span>
+                      <input
+                        value={trialForm.school}
+                        onChange={(e) => setTrialForm((f) => ({ ...f, school: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="font-medium text-zinc-700">Parent name (record)</span>
+                      <input
+                        value={trialForm.parentName}
+                        onChange={(e) => setTrialForm((f) => ({ ...f, parentName: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm sm:col-span-2">
+                      <span className="font-medium text-zinc-700">Notes</span>
+                      <textarea
+                        rows={2}
+                        value={trialForm.notes}
+                        onChange={(e) => setTrialForm((f) => ({ ...f, notes: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    {trialFormError && (
+                      <p className="text-xs text-red-600 sm:col-span-2">{trialFormError}</p>
+                    )}
+                    <div className="flex gap-2 sm:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={trialFormSaving}
+                        className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
+                      >
+                        {trialFormSaving ? "Saving…" : "Add trial"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowTrialForm(false); setTrialForm(emptyTrialForm); setTrialFormError(""); }}
+                        className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
               <ul className="divide-y divide-zinc-100">
                 {trialLeads.map((row) => {
                   const isSaved = row.attendanceSaved;
                   const isExpanded = editingTrialIds.has(row.trialLeadId);
-                  const needsMark = !isSaved;
+                  const isReadOnly = row.trialStatus === "converted" || row.trialStatus === "declined"; // undefined = active = editable
+                  const needsMark = !isSaved && !isReadOnly;
                   return (
                     <li
                       key={row.trialLeadId}
@@ -803,6 +961,16 @@ export default function SessionAttendancePanel({
                             <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-900">
                               Free trial
                             </span>
+                            {row.trialStatus === "converted" && (
+                              <span className="inline-flex items-center rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-800">
+                                Converted
+                              </span>
+                            )}
+                            {row.trialStatus === "declined" && (
+                              <span className="inline-flex items-center rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600">
+                                Did not enrol
+                              </span>
+                            )}
                           </p>
                         </div>
                         {isSaved && (
@@ -810,7 +978,7 @@ export default function SessionAttendancePanel({
                             <span className={statusButtonClassName(normalizeSessionMarkingStatus(row.status), true)}>
                               {statusDisplayLabel(normalizeSessionMarkingStatus(row.status))}
                             </span>
-                            {!isCancelledSession && (
+                            {!isCancelledSession && !isReadOnly && (
                               <button
                                 type="button"
                                 disabled={saving}
@@ -828,7 +996,7 @@ export default function SessionAttendancePanel({
                           </div>
                         )}
                       </div>
-                      {!isCancelledSession && (needsMark || isExpanded) && (
+                      {!isCancelledSession && !isReadOnly && (needsMark || isExpanded) && (
                         <div className={isSaved ? "mt-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" : "mt-2"}>
                           <div className="flex flex-wrap gap-1">
                             {SESSION_MARKING_STATUSES.map((status) => (

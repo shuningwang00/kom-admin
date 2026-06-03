@@ -86,3 +86,32 @@ export async function getClaim(id: string): Promise<StaffClaim | null> {
     .where(eq(staffClaims.id, id));
   return row ?? null;
 }
+
+export async function updateClaim(
+  id: string,
+  data: Partial<{
+    claimDate: string;
+    amount: string;
+    category: string;
+    description: string;
+    receiptFileId: string | null;
+    receiptFileName: string | null;
+  }>,
+): Promise<StaffClaim | null> {
+  const db = getDb();
+  const [row] = await db
+    .update(staffClaims)
+    .set(data)
+    .where(eq(staffClaims.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteClaim(id: string): Promise<StaffClaim | null> {
+  const db = getDb();
+  const [row] = await db
+    .delete(staffClaims)
+    .where(eq(staffClaims.id, id))
+    .returning();
+  return row ?? null;
+}

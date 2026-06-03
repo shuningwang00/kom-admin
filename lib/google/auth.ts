@@ -1,5 +1,8 @@
+import { getDb } from "@/lib/db/index";
+import { siteSettings } from "@/lib/db/schema";
 import { google } from "googleapis";
 import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
 
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
@@ -72,7 +75,68 @@ export async function getGoogleAuthClient() {
   const refreshToken = await getRefreshTokenFromStore();
   if (!refreshToken) {
     throw new Error(
-      "Google Sheets is not connected. Click “Connect Google” on the billing page, or set GOOGLE_OAUTH_REFRESH_TOKEN in .env.local.",
+      "Google Sheets is not connected. Click 'Connect Google' on the billing page, or set GOOGLE_OAUTH_REFRESH_TOKEN in .env.local.",
+    );
+  }
+
+  const oauth2 = createOAuthClient();
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  return oauth2;
+}
+
+const GDRIVE_TOKEN_SETTING = "google_oauth_refresh_token";
+
+export async function saveRefreshTokenToDb(refreshToken: string): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(siteSettings)
+    .values({ key: GDRIVE_TOKEN_SETTING, value: refreshToken, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: siteSettings.key,
+      set: { value: refreshToken, updatedAt: new Date() },
+    });
+}
+
+async function getRefreshTokenFromDb(): Promise<string | null> {
+  try {
+    const db = getDb();
+    const [row] = await db
+      .select({ value: siteSettings.value })
+      .from(siteSettings)
+      .where(eq(siteSettings.key, GDRIVE_TOKEN_SETTING))
+      .limit(1);
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Auth client for server-level Drive/Sheets operations (receipt uploads, billing exports).
+ * Reads from: service account → env var → DB (set when admin clicks Connect Google) → cookie.
+ * All staff share the same Drive access regardless of who is logged in.
+ */
+export async function getServerGoogleAuthClient() {
+  const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
+  if (json) {
+    const credentials = JSON.parse(json) as {
+      client_email: string;
+      private_key: string;
+    };
+    return new google.auth.GoogleAuth({
+      credentials,
+      scopes: [SHEETS_SCOPE, DRIVE_FILE_SCOPE],
+    });
+  }
+
+  const refreshToken =
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() ||
+    (await getRefreshTokenFromDb()) ||
+    (await getRefreshTokenFromStore());
+
+  if (!refreshToken) {
+    throw new Error(
+      "Google Drive is not configured for shared access. Go to the Billing page and click 'Connect Google'.",
     );
   }
 

@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const elevated = await isOwnerOrAdmin(user);
     const filterEmail = elevated ? undefined : user.email;
     const claims = await listClaimsForMonth(month, { email: filterEmail, status });
-    return jsonOk({ claims, isOwner: elevated });
+    return jsonOk({ claims, isOwner: elevated, userEmail: user.email });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load claims";
     return jsonError(msg, 500);

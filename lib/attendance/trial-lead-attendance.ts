@@ -16,6 +16,7 @@ export type SessionTrialLeadRow = {
   name: string;
   status: AttendanceStatus;
   attendanceSaved: boolean;
+  trialStatus: "active" | "converted" | "declined";
 };
 
 export async function listTrialLeadsForSession(
@@ -29,7 +30,6 @@ export async function listTrialLeadsForSession(
     .from(trialLeads)
     .where(
       and(
-        eq(trialLeads.status, "active"),
         eq(trialLeads.classId, classId),
         eq(trialLeads.trialDate, date),
       ),
@@ -45,6 +45,7 @@ export async function listTrialLeadsForSession(
         status,
         updatedBy: trial.trialAttendanceUpdatedBy,
       }),
+      trialStatus: trial.status,
     };
   });
 }

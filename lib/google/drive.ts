@@ -1,10 +1,10 @@
 import { google } from "googleapis";
-import { getGoogleAuthClient } from "@/lib/google/auth";
+import { getServerGoogleAuthClient } from "@/lib/google/auth";
 
 const CLAIMS_FOLDER_NAME = "Claims";
 
 async function getDriveClient() {
-  const auth = await getGoogleAuthClient();
+  const auth = await getServerGoogleAuthClient();
   return google.drive({ version: "v3", auth });
 }
 
@@ -75,4 +75,13 @@ export async function uploadReceiptToDrive(
 
   if (!res.data.id) throw new Error("Drive upload failed: no file ID returned");
   return { fileId: res.data.id, fileName: res.data.name ?? originalName };
+}
+
+export async function deleteFileFromDrive(fileId: string): Promise<void> {
+  try {
+    const drive = await getDriveClient();
+    await drive.files.delete({ fileId });
+  } catch {
+    // Silently ignore — file may already be deleted or inaccessible
+  }
 }

@@ -57,6 +57,7 @@ export default function ClaimsManager() {
   const [month, setMonth] = useState(() => today.slice(0, 7));
   const [claims, setClaims] = useState<Claim[]>([]);
   const [isOwnerView, setIsOwnerView] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -76,6 +77,21 @@ export default function ClaimsManager() {
   const [rejectReason, setRejectReason] = useState("");
   const [reviewing, setReviewing] = useState(false);
 
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCategory, setEditCategory] = useState<string>(CATEGORIES[0]);
+  const [editDescription, setEditDescription] = useState("");
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const editFileRef = useRef<HTMLInputElement>(null);
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -86,17 +102,18 @@ export default function ClaimsManager() {
       setError(d.error ?? "Failed to load");
       return;
     }
-    const data = (await res.json()) as { claims: Claim[]; isOwner: boolean };
+    const data = (await res.json()) as { claims: Claim[]; isOwner: boolean; userEmail: string };
     setClaims(data.claims);
     setIsOwnerView(data.isOwner);
+    setUserEmail(data.userEmail);
   }, [month]);
 
   useEffect(() => { load(); }, [load]);
 
   async function submitClaim() {
     setFormError("");
-    if (!formDate || !formAmount || !formCategory) {
-      setFormError("Date, amount, and category are required.");
+    if (!formDate || !formAmount || !formCategory || !formFile) {
+      setFormError("Date, amount, category, and a receipt are required.");
       return;
     }
     const amt = parseFloat(formAmount);
@@ -146,8 +163,57 @@ export default function ClaimsManager() {
     }
   }
 
+  function startEdit(c: Claim) {
+    setEditingId(c.id);
+    setEditDate(c.claimDate);
+    setEditAmount(parseFloat(c.amount).toFixed(2));
+    setEditCategory(c.category);
+    setEditDescription(c.description);
+    setEditFile(null);
+    setEditError("");
+    if (editFileRef.current) editFileRef.current.value = "";
+  }
+
+  async function saveEdit(id: string) {
+    setEditError("");
+    const amt = parseFloat(editAmount);
+    if (!editDate || isNaN(amt) || amt <= 0) {
+      setEditError("Date and a valid amount are required.");
+      return;
+    }
+    setEditSaving(true);
+    const fd = new FormData();
+    fd.append("claimDate", editDate);
+    fd.append("amount", amt.toFixed(2));
+    fd.append("category", editCategory);
+    fd.append("description", editDescription);
+    if (editFile) fd.append("receipt", editFile);
+
+    const res = await fetch(`/api/claims/${id}`, { method: "PATCH", body: fd });
+    setEditSaving(false);
+    if (!res.ok) {
+      const d = (await res.json()) as { error?: string };
+      setEditError(d.error ?? "Failed to save");
+      return;
+    }
+    setEditingId(null);
+    await load();
+  }
+
+  async function confirmDelete(id: string) {
+    setDeletingId(id);
+    const res = await fetch(`/api/claims/${id}`, { method: "DELETE" });
+    setDeletingId(null);
+    setDeleteConfirmId(null);
+    if (!res.ok) {
+      const d = (await res.json()) as { error?: string };
+      setError(d.error ?? "Failed to delete");
+      return;
+    }
+    await load();
+  }
+
   const pendingClaims = claims.filter((c) => c.status === "pending");
-  const myClaims = isOwnerView ? [] : claims;
 
   return (
     <div className="space-y-6">
@@ -193,8 +259,8 @@ export default function ClaimsManager() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-600">Receipt (optional)</label>
-              <input ref={fileRef} type="file" accept="image/*,application/pdf"
+              <label className="mb-1 block text-xs font-medium text-zinc-600">Receipt *</label>
+              <input ref={fileRef} type="file" accept="image/*,application/pdf" required
                 onChange={(e) => setFormFile(e.target.files?.[0] ?? null)}
                 className="w-full text-sm text-zinc-600 file:mr-3 file:rounded file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:bg-zinc-200" />
             </div>
@@ -283,6 +349,22 @@ export default function ClaimsManager() {
                               className="rounded bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-200">
                               Reject
                             </button>
+                            {deleteConfirmId === c.id ? (
+                              <>
+                                <button type="button" disabled={deletingId === c.id}
+                                  onClick={() => confirmDelete(c.id)}
+                                  className="rounded bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                                  {deletingId === c.id ? "…" : "Sure?"}
+                                </button>
+                                <button type="button" onClick={() => setDeleteConfirmId(null)}
+                                  className="text-xs text-zinc-500 hover:text-zinc-800">✕</button>
+                              </>
+                            ) : (
+                              <button type="button" onClick={() => setDeleteConfirmId(c.id)}
+                                className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-500 hover:bg-zinc-100">
+                                Delete
+                              </button>
+                            )}
                           </span>
                         )}
                       </td>
@@ -294,14 +376,72 @@ export default function ClaimsManager() {
           )}
 
           {/* All claims for the month */}
-          <ClaimsTable claims={claims} isOwnerView={isOwnerView} month={month} />
+          <ClaimsTable
+            claims={claims}
+            isOwnerView={isOwnerView}
+            userEmail={userEmail}
+            month={month}
+            editingId={editingId}
+            editDate={editDate}
+            editAmount={editAmount}
+            editCategory={editCategory}
+            editDescription={editDescription}
+            editError={editError}
+            editSaving={editSaving}
+            editFileRef={editFileRef}
+            deleteConfirmId={deleteConfirmId}
+            deletingId={deletingId}
+            onStartEdit={startEdit}
+            onEditDate={setEditDate}
+            onEditAmount={setEditAmount}
+            onEditCategory={setEditCategory}
+            onEditDescription={setEditDescription}
+            onEditFile={setEditFile}
+            onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditingId(null)}
+            onDeleteConfirm={setDeleteConfirmId}
+            onConfirmDelete={confirmDelete}
+            onCancelDelete={() => setDeleteConfirmId(null)}
+          />
         </>
       )}
     </div>
   );
 }
 
-function ClaimsTable({ claims, isOwnerView, month }: { claims: Claim[]; isOwnerView: boolean; month: string }) {
+function ClaimsTable({
+  claims, isOwnerView, userEmail, month,
+  editingId, editDate, editAmount, editCategory, editDescription,
+  editError, editSaving, editFileRef, deleteConfirmId, deletingId,
+  onStartEdit, onEditDate, onEditAmount, onEditCategory, onEditDescription,
+  onEditFile, onSaveEdit, onCancelEdit, onDeleteConfirm, onConfirmDelete, onCancelDelete,
+}: {
+  claims: Claim[];
+  isOwnerView: boolean;
+  userEmail: string;
+  month: string;
+  editingId: string | null;
+  editDate: string;
+  editAmount: string;
+  editCategory: string;
+  editDescription: string;
+  editError: string;
+  editSaving: boolean;
+  editFileRef: React.RefObject<HTMLInputElement | null>;
+  deleteConfirmId: string | null;
+  deletingId: string | null;
+  onStartEdit: (c: Claim) => void;
+  onEditDate: (v: string) => void;
+  onEditAmount: (v: string) => void;
+  onEditCategory: (v: string) => void;
+  onEditDescription: (v: string) => void;
+  onEditFile: (f: File | null) => void;
+  onSaveEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onDeleteConfirm: (id: string) => void;
+  onConfirmDelete: (id: string) => void;
+  onCancelDelete: () => void;
+}) {
   if (claims.length === 0) {
     return (
       <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm">
@@ -327,27 +467,113 @@ function ClaimsTable({ claims, isOwnerView, month }: { claims: Claim[]; isOwnerV
             <th className="px-4 py-2">Description</th>
             <th className="px-4 py-2">Receipt</th>
             <th className="px-4 py-2">Status</th>
+            <th className="px-4 py-2" />
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100">
-          {claims.map((c) => (
-            <tr key={c.id}>
-              {isOwnerView && <td className="px-4 py-3 font-medium text-zinc-900">{c.staffName || c.staffEmail}</td>}
-              <td className="px-4 py-3 text-zinc-600">{c.claimDate}</td>
-              <td className="px-4 py-3 text-zinc-600">{c.category}</td>
-              <td className="px-4 py-3 text-right font-semibold text-zinc-900">S${parseFloat(c.amount).toFixed(2)}</td>
-              <td className="px-4 py-3 text-zinc-600">{c.description || <span className="text-zinc-400">—</span>}</td>
-              <td className="px-4 py-3">
-                {c.receiptFileId ? (
-                  <a href={`https://drive.google.com/file/d/${c.receiptFileId}/view`} target="_blank" rel="noreferrer"
-                    className="text-sky-600 underline hover:text-sky-800 text-xs">{c.receiptFileName ?? "Receipt"}</a>
-                ) : <span className="text-zinc-400 text-xs">—</span>}
-              </td>
-              <td className="px-4 py-3">
-                <StatusBadge status={c.status} reason={c.rejectionReason} />
-              </td>
-            </tr>
-          ))}
+          {claims.map((c) => {
+            const canEdit = c.status === "pending" && (isOwnerView || c.staffEmail === userEmail);
+            const canDelete = isOwnerView || (c.staffEmail === userEmail && c.status === "pending");
+
+            if (editingId === c.id) {
+              return (
+                <tr key={c.id} className="bg-orange-50/40">
+                  <td colSpan={isOwnerView ? 8 : 7} className="px-4 py-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600">Date</label>
+                        <input type="date" value={editDate} onChange={(e) => onEditDate(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600">Amount (S$)</label>
+                        <input type="number" step="0.01" min="0.01" value={editAmount}
+                          onChange={(e) => onEditAmount(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600">Category</label>
+                        <select value={editCategory} onChange={(e) => onEditCategory(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm">
+                          {CATEGORIES.map((cat) => <option key={cat}>{cat}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600">
+                          Receipt {c.receiptFileName ? `(current: ${c.receiptFileName})` : "(optional)"}
+                        </label>
+                        <input ref={editFileRef} type="file" accept="image/*,application/pdf"
+                          onChange={(e) => onEditFile(e.target.files?.[0] ?? null)}
+                          className="w-full text-sm text-zinc-600 file:mr-3 file:rounded file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:bg-zinc-200" />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="mb-1 block text-xs font-medium text-zinc-600">Description</label>
+                        <input type="text" value={editDescription}
+                          onChange={(e) => onEditDescription(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm" />
+                      </div>
+                    </div>
+                    {editError && <p className="mt-1 text-xs text-red-600">{editError}</p>}
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={editSaving} onClick={() => onSaveEdit(c.id)}
+                        className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50">
+                        {editSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button type="button" onClick={onCancelEdit}
+                        className="text-xs text-zinc-500 hover:text-zinc-800">Cancel</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            }
+
+            return (
+              <tr key={c.id}>
+                {isOwnerView && <td className="px-4 py-3 font-medium text-zinc-900">{c.staffName || c.staffEmail}</td>}
+                <td className="px-4 py-3 text-zinc-600">{c.claimDate}</td>
+                <td className="px-4 py-3 text-zinc-600">{c.category}</td>
+                <td className="px-4 py-3 text-right font-semibold text-zinc-900">S${parseFloat(c.amount).toFixed(2)}</td>
+                <td className="px-4 py-3 text-zinc-600">{c.description || <span className="text-zinc-400">—</span>}</td>
+                <td className="px-4 py-3">
+                  {c.receiptFileId ? (
+                    <a href={`https://drive.google.com/file/d/${c.receiptFileId}/view`} target="_blank" rel="noreferrer"
+                      className="text-sky-600 underline hover:text-sky-800 text-xs">{c.receiptFileName ?? "Receipt"}</a>
+                  ) : <span className="text-zinc-400 text-xs">—</span>}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={c.status} reason={c.rejectionReason} />
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span className="inline-flex gap-2">
+                    {canEdit && (
+                      <button type="button" onClick={() => onStartEdit(c)}
+                        className="text-xs font-medium text-orange-700 hover:underline">
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      deleteConfirmId === c.id ? (
+                        <>
+                          <button type="button" disabled={deletingId === c.id}
+                            onClick={() => onConfirmDelete(c.id)}
+                            className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50">
+                            {deletingId === c.id ? "…" : "Sure?"}
+                          </button>
+                          <button type="button" onClick={onCancelDelete}
+                            className="text-xs text-zinc-400 hover:text-zinc-600">✕</button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={() => onDeleteConfirm(c.id)}
+                          className="text-xs text-zinc-400 hover:text-red-600">
+                          Delete
+                        </button>
+                      )
+                    )}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
