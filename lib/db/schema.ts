@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -580,5 +581,170 @@ export const calendarEvents = pgTable(
   },
   (t) => [
     index("calendar_events_date_idx").on(t.eventDate),
+  ],
+);
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+
+export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "sent",
+  "partial",
+  "paid",
+  "void",
+]);
+
+export const lineItemTypeEnum = pgEnum("line_item_type", [
+  "tuition",
+  "registration_fee",
+  "balance_forward",
+  "credit",
+  "discount",
+]);
+
+/** Per-student rate override, optionally scoped to a class and/or date range. */
+export const studentRateOverrides = pgTable(
+  "student_rate_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "cascade" }),
+    /** Null = applies to all classes for this student. */
+    classId: uuid("class_id").references(() => classes.id, { onDelete: "cascade" }),
+    /** e.g. "85.00" */
+    ratePerLesson: text("rate_per_lesson").notNull(),
+    /** Inclusive start — null = always. */
+    validFrom: date("valid_from"),
+    /** Inclusive end — null = no end. */
+    validTo: date("valid_to"),
+    notes: text("notes").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sro_student_idx").on(t.studentId),
+    index("sro_class_idx").on(t.classId),
+  ],
+);
+
+/** One invoice per student per billing month. */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "restrict" }),
+    /** "YYYY-MM" */
+    billingMonth: text("billing_month").notNull(),
+    /** e.g. "KOM-2026-06-0001" */
+    invoiceNumber: text("invoice_number").notNull(),
+    status: invoiceStatusEnum("status").notNull().default("sent"),
+    /** Sum of all tuition + registration fee line items. */
+    subtotal: text("subtotal").notNull().default("0.00"),
+    /** Manual discount — subtracted from subtotal. */
+    discountAmount: text("discount_amount").notNull().default("0.00"),
+    /** Unpaid amount carried forward from previous invoice (positive = owed). */
+    balanceForward: text("balance_forward").notNull().default("0.00"),
+    /** Credit applied from pending_credits (reduces total due). */
+    creditApplied: text("credit_applied").notNull().default("0.00"),
+    /** subtotal − discount + balanceForward − creditApplied */
+    totalDue: text("total_due").notNull().default("0.00"),
+    /** Sum of recorded payments. */
+    totalPaid: text("total_paid").notNull().default("0.00"),
+    remarks: text("remarks").notNull().default(""),
+    pdfFileId: text("pdf_file_id"),
+    pdfFileName: text("pdf_file_name"),
+    receiptFileId: text("receipt_file_id"),
+    receiptFileName: text("receipt_file_name"),
+    createdBy: text("created_by").notNull().default(""),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedBy: text("voided_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invoices_student_month_uidx").on(t.studentId, t.billingMonth),
+    index("invoices_student_idx").on(t.studentId),
+    index("invoices_month_idx").on(t.billingMonth),
+    index("invoices_status_idx").on(t.status),
+    uniqueIndex("invoices_number_uidx").on(t.invoiceNumber),
+  ],
+);
+
+export const invoiceLineItems = pgTable(
+  "invoice_line_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    type: lineItemTypeEnum("type").notNull(),
+    /** Set for tuition items — links back to the attendance record. */
+    attendanceRecordId: uuid("attendance_record_id").references(
+      () => attendanceRecords.id,
+      { onDelete: "set null" },
+    ),
+    classId: uuid("class_id").references(() => classes.id, { onDelete: "set null" }),
+    /** Denormalised class label (e.g. "Sec 2 Maths") for PDF grouping. */
+    classLabel: text("class_label").notNull().default(""),
+    sessionDate: date("session_date"),
+    /** Human-readable line, e.g. "Balance forward" or "Sibling discount". */
+    description: text("description").notNull().default(""),
+    /** e.g. "2026-05-03 (Pending M/U)" — shown as sub-line on PDF. */
+    detail: text("detail").notNull().default(""),
+    /** Positive for charges, negative for credits/discounts. */
+    amount: text("amount").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("ili_invoice_idx").on(t.invoiceId),
+    index("ili_attendance_idx").on(t.attendanceRecordId),
+  ],
+);
+
+/** Payment events against an invoice. */
+export const invoicePayments = pgTable(
+  "invoice_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    amount: text("amount").notNull(),
+    paymentDate: date("payment_date").notNull(),
+    notes: text("notes").notNull().default(""),
+    recordedBy: text("recorded_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ip_invoice_idx").on(t.invoiceId)],
+);
+
+/** Unapplied credits — created on overpayment or when a waived session was on a paid invoice. */
+export const pendingCredits = pgTable(
+  "pending_credits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "cascade" }),
+    amount: text("amount").notNull(),
+    reason: text("reason").notNull().default(""),
+    sourceInvoiceId: uuid("source_invoice_id").references(() => invoices.id, {
+      onDelete: "set null",
+    }),
+    appliedToInvoiceId: uuid("applied_to_invoice_id").references(
+      () => invoices.id,
+      { onDelete: "set null" },
+    ),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("pc_student_idx").on(t.studentId),
+    index("pc_applied_idx").on(t.appliedAt),
   ],
 );

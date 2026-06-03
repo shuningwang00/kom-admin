@@ -130,8 +130,8 @@ export async function getServerGoogleAuthClient() {
   }
 
   const refreshToken =
-    process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() ||
     (await getRefreshTokenFromDb()) ||
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() ||
     (await getRefreshTokenFromStore());
 
   if (!refreshToken) {
