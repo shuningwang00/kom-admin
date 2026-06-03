@@ -7,6 +7,7 @@ type PeopleTabsConfig = {
   timeOff: boolean;
   availability: boolean;
   adminRoster: boolean;
+  clock: boolean;
   payroll: boolean;
 };
 
@@ -14,6 +15,7 @@ const DEFAULT_TABS: PeopleTabsConfig = {
   timeOff: true,
   availability: false,
   adminRoster: false,
+  clock: true,
   payroll: true,
 };
 

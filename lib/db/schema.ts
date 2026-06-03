@@ -56,6 +56,7 @@ export const classSessionStatusEnum = pgEnum("class_session_status", [
 export const trialLeadStatusEnum = pgEnum("trial_lead_status", [
   "active",
   "converted",
+  "declined",
 ]);
 
 export const billingGroups = pgTable("billing_groups", {
@@ -215,6 +216,10 @@ export const siteAllowlist = pgTable(
     /** Staff (or staff+tutor) who appear in relief / makeup tutor dropdowns. */
     alsoReliefTutor: boolean("also_relief_tutor").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
+    /** Hourly admin rate for payroll, e.g. "20.00". Empty = not set. */
+    hourlyRate: text("hourly_rate").notNull().default(""),
+    /** Telegram handle without @, e.g. "ziningswork". Used for bot notifications. */
+    telegramHandle: text("telegram_handle").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -403,6 +408,26 @@ export const reliefOnlyTutor = pgTable(
       .defaultNow(),
   },
   (t) => [index("relief_only_tutor_name_idx").on(t.name)],
+);
+
+export const staffClockEntries = pgTable(
+  "staff_clock_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffEmail: text("staff_email").notNull(),
+    staffName: text("staff_name").notNull().default(""),
+    entryDate: date("entry_date").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    notes: text("notes").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("staff_clock_email_idx").on(t.staffEmail),
+    index("staff_clock_date_idx").on(t.entryDate),
+  ],
 );
 
 export const siteSettings = pgTable("site_settings", {

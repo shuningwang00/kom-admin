@@ -49,6 +49,7 @@ export async function GET() {
       availability:
         isOwner || ar === "staff" || ar === "staff_tutor",
       adminRoster: isOwner,
+      clock: isOwner || ar === "staff" || ar === "staff_tutor",
       payroll: Boolean(user),
     };
 

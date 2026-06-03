@@ -84,7 +84,7 @@ async function listConvertedFromEnrollments(
 }
 
 export async function listTrialsByStatus(
-  status: "active" | "converted",
+  status: "active" | "converted" | "declined",
 ): Promise<TrialListRow[]> {
   const db = getDb();
 
@@ -93,6 +93,14 @@ export async function listTrialsByStatus(
       .select()
       .from(trialLeads)
       .where(eq(trialLeads.status, "active"))
+      .orderBy(asc(trialLeads.name));
+  }
+
+  if (status === "declined") {
+    return db
+      .select()
+      .from(trialLeads)
+      .where(eq(trialLeads.status, "declined"))
       .orderBy(asc(trialLeads.name));
   }
 

@@ -4,6 +4,7 @@ export type PeopleTabsConfig = {
   timeOff: boolean;
   availability: boolean;
   adminRoster: boolean;
+  clock: boolean;
   payroll: boolean;
 };
 
@@ -24,6 +25,12 @@ export const PEOPLE_NAV_ITEMS = [
     href: "/people/admin-roster",
     label: "Admin roster",
     tabKey: "adminRoster" as const,
+    tutorNeedsViewPeople: false,
+  },
+  {
+    href: "/people/clock",
+    label: "Clock In/Out",
+    tabKey: "clock" as const,
     tutorNeedsViewPeople: false,
   },
   {

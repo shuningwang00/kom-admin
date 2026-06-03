@@ -340,18 +340,8 @@ export function StudentsRosterTable({
                     <td className="px-3 py-3 text-zinc-600">{s.school || "—"}</td>
                     <td className="px-3 py-3 text-zinc-600">
                       <div className="space-y-1 text-xs leading-snug">
-                        <p>
-                          <span className="font-medium text-zinc-500">
-                            Primary{" "}
-                          </span>
-                          {primaryContactDisplay(s)}
-                        </p>
-                        <p>
-                          <span className="font-medium text-zinc-500">
-                            Secondary{" "}
-                          </span>
-                          {secondaryContactDisplay(s)}
-                        </p>
+                        <p>{primaryContactDisplay(s)}</p>
+                        <p>{secondaryContactDisplay(s)}</p>
                       </div>
                     </td>
                     <td className="px-3 py-3 text-zinc-600">{s.levelDisplay}</td>

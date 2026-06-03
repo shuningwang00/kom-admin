@@ -11,6 +11,7 @@ type Member = {
   tutorMatch: string;
   alsoReliefTutor?: boolean;
   isActive: boolean;
+  telegramHandle: string;
 };
 
 type OwnerInfo = {
@@ -88,6 +89,7 @@ type EditDraft = {
   fullName: string;
   tutorMatch: string;
   alsoReliefTutor: boolean;
+  telegramHandle: string;
 } & RoleDraft;
 
 type TutorAddDraft = {
@@ -128,6 +130,7 @@ export default function TeamAllowlist() {
     isStaff: false,
     isTutor: true,
     alsoReliefTutor: false,
+    telegramHandle: "",
   });
 
   const [addDrafts, setAddDrafts] = useState<Record<string, TutorAddDraft>>({});
@@ -219,6 +222,7 @@ export default function TeamAllowlist() {
       tutorMatch: m.tutorMatch,
       ...rd,
       alsoReliefTutor: Boolean(m.alsoReliefTutor),
+      telegramHandle: m.telegramHandle ?? "",
     });
   }
 
@@ -256,6 +260,7 @@ export default function TeamAllowlist() {
           member.role === "relief_tutor" ? displayName : editDraft.tutorMatch,
         role,
         alsoReliefTutor: editDraft.alsoReliefTutor,
+        telegramHandle: editDraft.telegramHandle,
       }),
     });
     if (!res.ok) {
@@ -421,6 +426,17 @@ export default function TeamAllowlist() {
             placeholder="Display name"
             className={inputCls}
           />
+          <input
+            value={editDraft.telegramHandle}
+            onChange={(e) =>
+              setEditDraft((d) => ({
+                ...d,
+                telegramHandle: e.target.value.replace(/^@/, ""),
+              }))
+            }
+            placeholder="Telegram handle (without @)"
+            className={inputCls}
+          />
           {editingTutor && !isReliefPortal && (
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-zinc-600">
@@ -516,6 +532,9 @@ export default function TeamAllowlist() {
             <p className="text-sm text-zinc-500">{m.fullName}</p>
           )}
           <p className="text-sm text-zinc-400">{m.email}</p>
+          {m.telegramHandle && (
+            <p className="text-sm text-zinc-400">@{m.telegramHandle}</p>
+          )}
           <p className="mt-0.5 text-xs text-zinc-400">
             {roleLabel(rd, m.role)}
             {m.alsoReliefTutor && m.role !== "relief_tutor" && (

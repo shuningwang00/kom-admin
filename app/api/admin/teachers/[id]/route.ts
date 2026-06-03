@@ -44,6 +44,9 @@ export async function PATCH(request: Request, { params }: Params) {
         patch.permissionsJson = RELIEF_TUTOR_PERMISSIONS_JSON;
       }
     }
+    if (body.telegramHandle != null) {
+      patch.telegramHandle = String(body.telegramHandle).trim().replace(/^@/, "");
+    }
     if (body.email != null) {
       const email = String(body.email).trim().toLowerCase();
       if (!email.includes("@")) return jsonError("Valid email required.");

@@ -13,7 +13,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const status = (searchParams.get("status") ?? "active") as
       | "active"
-      | "converted";
+      | "converted"
+      | "declined";
     const rows = await listTrialsByStatus(status);
     return jsonOk({ trials: rows });
   } catch (err) {

@@ -127,6 +127,13 @@
       "when": 1749081600000,
       "tag": "0023_rescheduled_session_status",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1749168000000,
+      "tag": "0024_staff_clock",
+      "breakpoints": true
     }
   ]
 }

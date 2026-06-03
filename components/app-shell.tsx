@@ -60,12 +60,9 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/attendance/tutor", label: "My classes", roles: ["tutor", "relief_tutor"] },
   { href: "/attendance", label: "By day", roles: ["tutor"], permission: { role: "tutor", flag: "viewByDay" } },
-  { href: "/attendance", label: "Attendance", roles: ["owner", "staff"] },
-  { href: "/makeup", label: "Makeup", roles: ["owner", "staff"] },
-  { href: "/trials", label: "Trials", roles: ["owner", "staff"] },
   { href: "/programmes", label: "Programmes", roles: ["owner", "staff"] },
   { href: "/students", label: "Students", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewStudents" } },
-  { href: "/classes", label: "Classes", roles: ["owner"] },
+  { href: "/schedule", label: "Schedule", roles: ["owner"] },
   { href: "/enrollments", label: "Enrollments", roles: ["owner", "staff"] },
   { href: "/billing", label: "Billing", roles: ["owner", "staff"] },
 ];
@@ -123,15 +120,13 @@ function NavLink({
       href={href}
       onClick={onNavigate}
       className={
-        active
-          ? `${navLinkBase} flex items-center justify-between border-orange-500 bg-zinc-800 text-orange-400 ${
-              nested ? "ml-2 border-l-zinc-500" : ""
+        nested
+          ? `flex items-center justify-between py-2 pl-5 pr-3 text-sm font-medium ${
+              active ? "text-orange-400" : "text-zinc-500 hover:text-zinc-200"
             }`
-          : `${navLinkBase} flex items-center justify-between text-zinc-400 hover:bg-zinc-800 hover:text-white ${
-              nested
-                ? "ml-2 border-l-zinc-600 text-zinc-500 hover:text-zinc-200"
-                : "border-transparent"
-            }`
+          : active
+          ? `${navLinkBase} flex items-center justify-between border-orange-500 bg-zinc-800 text-orange-400`
+          : `${navLinkBase} flex items-center justify-between border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-white`
       }
     >
       {label}
@@ -180,13 +175,7 @@ function PeopleNavGroup({
   }, [inPeople]);
 
   return (
-    <div
-      className={`mt-1 space-y-0.5 rounded-lg border py-1 ${
-        groupActive || open
-          ? "border-zinc-700 bg-zinc-800/40"
-          : "border-zinc-800 bg-zinc-900/50"
-      }`}
-    >
+    <div className="mt-1 space-y-0.5">
       <button
         type="button"
         onClick={() => {
@@ -240,13 +229,7 @@ function SettingsNavGroup({ onNavigate }: { onNavigate?: () => void }) {
   }, [inSettings]);
 
   return (
-    <div
-      className={`mt-1 space-y-0.5 rounded-lg border py-1 ${
-        groupActive || open
-          ? "border-zinc-700 bg-zinc-800/40"
-          : "border-zinc-800 bg-zinc-900/50"
-      }`}
-    >
+    <div className="mt-1 space-y-0.5">
       <button
         type="button"
         onClick={() => {
@@ -272,6 +255,56 @@ function SettingsNavGroup({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate={onNavigate}
           />
         ))}
+    </div>
+  );
+}
+
+const ATTENDANCE_ITEMS = [
+  { href: "/makeup", label: "Makeup" },
+  { href: "/trials", label: "Trials" },
+];
+
+function AttendanceNavGroup({
+  onNavigate,
+  makeupNeedsCount = 0,
+  trialsActiveCount = 0,
+}: {
+  onNavigate?: () => void;
+  makeupNeedsCount?: number;
+  trialsActiveCount?: number;
+}) {
+  const pathname = usePathname();
+  const attendanceActive = navLinkActive(pathname, "/attendance");
+
+  return (
+    <div className="mt-1 space-y-0.5">
+      <Link
+        href="/attendance"
+        onClick={onNavigate}
+        className={`${navLinkBase} flex items-center justify-between ${
+          attendanceActive
+            ? "border-orange-500 bg-zinc-800 text-orange-400"
+            : "border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-white"
+        }`}
+      >
+        Attendance
+      </Link>
+      {ATTENDANCE_ITEMS.map((item) => (
+        <NavLink
+          key={item.href}
+          href={item.href}
+          label={item.label}
+          nested
+          onNavigate={onNavigate}
+          badge={
+            item.href === "/makeup"
+              ? makeupNeedsCount
+              : item.href === "/trials"
+              ? trialsActiveCount
+              : undefined
+          }
+        />
+      ))}
     </div>
   );
 }
@@ -394,6 +427,9 @@ export default function AppShell({
 
   /** Sidebar block order: show People subsection after this nav item. */
   const peopleNavAfterHref = useMemo(() => {
+    // For owners/staff: People group appears after Enrollments (before Billing)
+    if (navItems.some((i) => i.href === "/enrollments")) return "/enrollments";
+    // For tutors: after attendance items
     if (navItems.some((i) => i.href === "/attendance")) return "/attendance";
     if (navItems.some((i) => i.href === "/attendance/tutor")) return "/attendance/tutor";
     if (navItems.some((i) => i.href === "/calendar")) return "/calendar";
@@ -472,8 +508,15 @@ export default function AppShell({
                     href={item.href}
                     label={item.label}
                     onNavigate={closeSidebarOnMobile}
-                    badge={item.href === "/makeup" ? makeupNeedsCount : item.href === "/trials" ? trialsActiveCount : undefined}
                   />
+                  {item.href === "/calendar" &&
+                    (role === "owner" || role === "staff") && (
+                      <AttendanceNavGroup
+                        onNavigate={closeSidebarOnMobile}
+                        makeupNeedsCount={makeupNeedsCount}
+                        trialsActiveCount={trialsActiveCount}
+                      />
+                    )}
                   {item.href === peopleNavAfterHref &&
                     peopleNavItems.length > 0 && (
                       <PeopleNavGroup

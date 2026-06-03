@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
-/** Remove trial lead — they did not become a full-time student. */
+/** Mark trial lead as declined — they did not become a full-time student. */
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -16,16 +16,17 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const deleted = await db
-      .delete(trialLeads)
+    const updated = await db
+      .update(trialLeads)
+      .set({ status: "declined" })
       .where(and(eq(trialLeads.id, id), eq(trialLeads.status, "active")))
       .returning({ id: trialLeads.id });
 
-    if (deleted.length === 0) {
+    if (updated.length === 0) {
       return jsonError("Trial not found or already converted.", 404);
     }
 
-    return jsonOk({ deleted: true });
+    return jsonOk({ declined: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";
     const status = message === "Unauthorized" ? 401 : 500;

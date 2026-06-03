@@ -22,7 +22,7 @@ type Trial = {
   classId: string | null;
   trialDate: string | null;
   notes: string;
-  status: "active" | "converted";
+  status: "active" | "converted" | "declined";
   convertedStudentId: string | null;
   fromEnrollment?: boolean;
   startDate?: string | null;
@@ -59,7 +59,7 @@ export default function TrialsManager() {
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [showConverted, setShowConverted] = useState(false);
+  const [view, setView] = useState<"active" | "converted" | "declined">("active");
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [convertForm, setConvertForm] = useState({
     startDate: "",
@@ -70,9 +70,8 @@ export default function TrialsManager() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const status = showConverted ? "converted" : "active";
     const [tRes, cRes] = await Promise.all([
-      fetch(`/api/trials?status=${status}`),
+      fetch(`/api/trials?status=${view}`),
       fetch("/api/classes"),
     ]);
     if (!tRes.ok) {
@@ -87,7 +86,7 @@ export default function TrialsManager() {
       setClasses(cData.classes);
     }
     setLoading(false);
-  }, [showConverted]);
+  }, [view]);
 
   useEffect(() => {
     load();
@@ -194,7 +193,7 @@ export default function TrialsManager() {
       return;
     }
     await load();
-    setSuccess(`Removed ${name} — not kept in student records.`);
+    setSuccess(`${name} marked as did not enroll.`);
   }
 
   return (
@@ -347,25 +346,30 @@ export default function TrialsManager() {
       )}
 
       <section>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-zinc-800">
-            {showConverted ? "Converted trials" : "Active trials"} ({trials.length})
+            {view === "active" ? "Active" : view === "converted" ? "Converted" : "Did not enroll"} ({trials.length})
           </h2>
-          <label className="flex items-center gap-2 text-sm text-zinc-600">
-            <input
-              type="checkbox"
-              checked={showConverted}
-              onChange={(e) => {
-                setShowConverted(e.target.checked);
-                setConvertingId(null);
-              }}
-            />
-            Show converted
-          </label>
+          <div className="flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs font-medium">
+            {(["active", "converted", "declined"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => { setView(v); setConvertingId(null); }}
+                className={`rounded-md px-2.5 py-1 capitalize ${
+                  view === v
+                    ? "bg-white text-zinc-900 shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800"
+                }`}
+              >
+                {v === "declined" ? "Did not enroll" : v}
+              </button>
+            ))}
+          </div>
         </div>
         {loading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
-        ) : showConverted ? (
+        ) : view === "converted" ? (
           <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
             <table className="min-w-full text-sm">
               <thead>
@@ -422,11 +426,41 @@ export default function TrialsManager() {
               </tbody>
             </table>
           </div>
+        ) : view === "declined" ? (
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50/80 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600">
+                  <th className="px-4 py-2.5">Name</th>
+                  <th className="px-4 py-2.5">Contact</th>
+                  <th className="px-4 py-2.5">Class</th>
+                  <th className="px-4 py-2.5">Trial date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {trials.map((t) => (
+                  <tr key={t.id} className="text-zinc-800">
+                    <td className="px-4 py-3 font-medium text-zinc-900">{t.name}</td>
+                    <td className="px-4 py-3 text-zinc-600">{formatStudentContacts(t)}</td>
+                    <td className="px-4 py-3 text-zinc-600">{classLabel(t.classId)}</td>
+                    <td className="px-4 py-3 text-zinc-600">{formatDisplayDate(t.trialDate)}</td>
+                  </tr>
+                ))}
+                {trials.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
+                      No declined trials yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white shadow-sm">
             {trials.map((t) => (
               <li key={t.id} className="px-4 py-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-medium text-zinc-900">{t.name}</p>
                     <p className="text-sm text-zinc-600">
