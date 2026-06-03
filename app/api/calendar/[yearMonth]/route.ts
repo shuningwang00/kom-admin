@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { isOwner, isReliefTutor, requireEffectiveUser } from "@/lib/auth/access";
+import { isOwner, isReliefTutor, isStaff, requireEffectiveUser } from "@/lib/auth/access";
 import { getTutorMatch } from "@/lib/auth/user";
 import { loadCalendarMonth } from "@/lib/calendar/month-data";
 
@@ -14,6 +14,7 @@ export async function GET(_request: Request, { params }: Params) {
 
     const { yearMonth } = await params;
     const owner = isOwner(user);
+    const staff = isStaff(user);
     const reliefOnly = isReliefTutor(user);
     const tutorMatch = reliefOnly ? await getTutorMatch(user) : "";
     const data = await loadCalendarMonth(yearMonth, {
@@ -23,6 +24,7 @@ export async function GET(_request: Request, { params }: Params) {
     return jsonOk({
       ...data,
       canManageRoster: owner,
+      canAddEvents: owner || staff,
       scopedToOwnClasses: reliefOnly,
     });
   } catch (err) {

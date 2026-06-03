@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import AdminRosterDayPanel from "@/components/calendar/admin-roster-day-panel";
 import type {
   CalendarAdminShift,
+  CalendarEventItem,
   CalendarHolSessionItem,
   CalendarMonthData,
   CalendarSessionItem,
@@ -22,6 +23,7 @@ import type { StaffTimeOffRecord } from "@/lib/people/staff-time-off";
 
 type CalendarApiData = CalendarMonthData & {
   canManageRoster?: boolean;
+  canAddEvents?: boolean;
   scopedToOwnClasses?: boolean;
 };
 
@@ -183,6 +185,58 @@ function AdminShiftChip({ shift }: { shift: CalendarAdminShift }) {
   );
 }
 
+function EventChip({
+  event,
+  onEdit,
+  canEdit,
+}: {
+  event: CalendarEventItem;
+  onEdit?: (e: CalendarEventItem) => void;
+  canEdit?: boolean;
+}) {
+  const timeStr = event.startTime
+    ? event.endTime
+      ? `${fmt12h(event.startTime)}–${fmt12h(event.endTime)}`
+      : fmt12h(event.startTime)
+    : "";
+  return (
+    <div
+      className={`truncate rounded border border-pink-300 bg-pink-50 px-1.5 py-0.5 text-xs font-medium text-pink-900 ${canEdit ? "cursor-pointer hover:bg-pink-100" : ""}`}
+      title={`${event.title}${timeStr ? ` · ${timeStr}` : ""}${event.notes ? ` · ${event.notes}` : ""}`}
+      onClick={() => canEdit && onEdit?.(event)}
+    >
+      {event.title}
+      {timeStr && <span className="ml-1 font-normal opacity-70">{timeStr}</span>}
+    </div>
+  );
+}
+
+function EventCard({
+  event,
+  onEdit,
+  canEdit,
+}: {
+  event: CalendarEventItem;
+  onEdit?: (e: CalendarEventItem) => void;
+  canEdit?: boolean;
+}) {
+  const timeStr = event.startTime
+    ? event.endTime
+      ? `${fmt12h(event.startTime)}–${fmt12h(event.endTime)}`
+      : fmt12h(event.startTime)
+    : "";
+  return (
+    <div
+      className={`rounded-lg border border-pink-300 bg-pink-50 p-2 text-xs text-pink-900 ${canEdit ? "cursor-pointer hover:bg-pink-100" : ""}`}
+      onClick={() => canEdit && onEdit?.(event)}
+    >
+      <div className="font-semibold leading-snug">{event.title}</div>
+      {timeStr && <div className="mt-0.5 text-pink-700">{timeStr}</div>}
+      {event.notes && <div className="mt-0.5 text-pink-800 opacity-80">{event.notes}</div>}
+    </div>
+  );
+}
+
 function coverageDayClass(status: DayCoverageStatus): string {
   if (status === "no_admin_no_class") return "bg-orange-50";
   if (status === "no_admin_has_class") return "bg-red-50";
@@ -236,17 +290,21 @@ function MonthGrid({
   onWeekClick,
   onDaySelect,
   canManageRoster,
+  canAddEvents,
   selectedDate,
   showLessons,
   showAdmin,
+  onEditEvent,
 }: {
   data: CalendarMonthData;
   onWeekClick: (weekStart: string) => void;
   onDaySelect: (date: string) => void;
   canManageRoster: boolean;
+  canAddEvents: boolean;
   selectedDate: string | null;
   showLessons: boolean;
   showAdmin: boolean;
+  onEditEvent?: (e: CalendarEventItem) => void;
 }) {
   const today = localIso(new Date());
   const firstDay = data.days[0]?.date;
@@ -281,6 +339,7 @@ function MonthGrid({
           const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
           const sessions = showLessons ? cell.sessions : [];
           const holSessions = showLessons ? (day?.holSessions ?? []) : [];
+          const dayEvents = day?.events ?? [];
           const preview = monthCellPreview(adminShifts, sessions, holSessions, showLessons);
           const isSelected = selectedDate === cell.date;
           return (
@@ -328,6 +387,9 @@ function MonthGrid({
                 className="flex flex-col gap-0.5"
                 onClick={(e) => e.stopPropagation()}
               >
+                {dayEvents.map((ev) => (
+                  <EventChip key={ev.id} event={ev} canEdit={canAddEvents} onEdit={onEditEvent} />
+                ))}
                 {preview.shownAdmins.map((s) => (
                   <AdminShiftChip key={s.id} shift={s} />
                 ))}
@@ -373,9 +435,11 @@ function WeekView({
   onNextWeek,
   onDaySelect,
   canManageRoster,
+  canAddEvents,
   selectedDate,
   showLessons,
   showAdmin,
+  onEditEvent,
 }: {
   weekStart: string;
   data: CalendarMonthData;
@@ -384,9 +448,11 @@ function WeekView({
   onNextWeek: () => void;
   onDaySelect: (date: string) => void;
   canManageRoster: boolean;
+  canAddEvents: boolean;
   selectedDate: string | null;
   showLessons: boolean;
   showAdmin: boolean;
+  onEditEvent?: (e: CalendarEventItem) => void;
 }) {
   const weekDays: string[] = [];
   const d = new Date(weekStart + "T00:00:00");
@@ -437,6 +503,7 @@ function WeekView({
             const sessions = showLessons ? (day?.sessions ?? []) : [];
             const holSessions = showLessons ? (day?.holSessions ?? []) : [];
             const adminShifts = showAdmin ? (day?.adminShifts ?? []) : [];
+            const dayEvents = day?.events ?? [];
             const isToday = iso === today;
             const hasRed = sessions.some((s) => s.status === "red");
             const cov = day?.coverageStatus ?? "ok";
@@ -484,13 +551,16 @@ function WeekView({
                   </div>
                 </div>
 
-                {adminShifts.length === 0 && sessions.length === 0 && holSessions.length === 0 ? (
+                {adminShifts.length === 0 && sessions.length === 0 && holSessions.length === 0 && dayEvents.length === 0 ? (
                   <p className="text-center text-xs text-zinc-300">—</p>
                 ) : (
                   <div
                     className="flex flex-col gap-1.5"
                     onClick={(e) => canManageRoster && e.stopPropagation()}
                   >
+                    {dayEvents.map((ev) => (
+                      <EventCard key={ev.id} event={ev} canEdit={canAddEvents} onEdit={onEditEvent} />
+                    ))}
                     {adminShifts.map((s) => (
                       <AdminShiftChip key={s.id} shift={s} />
                     ))}
@@ -589,13 +659,17 @@ function ListView({
   showLessons,
   showAdmin,
   canManageRoster,
+  canAddEvents,
   onDaySelect,
+  onEditEvent,
 }: {
   data: CalendarMonthData;
   showLessons: boolean;
   showAdmin: boolean;
   canManageRoster: boolean;
+  canAddEvents: boolean;
   onDaySelect: (date: string) => void;
+  onEditEvent?: (e: CalendarEventItem) => void;
 }) {
   return (
     <ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white">
@@ -603,7 +677,8 @@ function ListView({
         const sessions = showLessons ? day.sessions : [];
         const holSessions = showLessons ? day.holSessions : [];
         const admin = showAdmin ? day.adminShifts : [];
-        if (sessions.length === 0 && holSessions.length === 0 && admin.length === 0) return null;
+        const dayEvents = day.events ?? [];
+        if (sessions.length === 0 && holSessions.length === 0 && admin.length === 0 && dayEvents.length === 0) return null;
         return (
           <li
             key={day.date}
@@ -618,6 +693,9 @@ function ListView({
               {isoToDayOfWeek(day.date)} {isoToDayNum(day.date)}
             </p>
             <div className="mt-2 flex flex-col gap-1">
+              {dayEvents.map((ev) => (
+                <EventChip key={ev.id} event={ev} canEdit={canAddEvents} onEdit={onEditEvent} />
+              ))}
               {admin.map((s) => (
                 <AdminShiftChip key={s.id} shift={s} />
               ))}
@@ -638,6 +716,10 @@ function ListView({
 function Legend() {
   return (
     <div className="flex flex-wrap gap-4 text-xs text-zinc-600">
+      <div className="flex items-center gap-1.5">
+        <span className="h-3 w-3 rounded border border-pink-300 bg-pink-50" />
+        Event / notice
+      </div>
       <div className="flex items-center gap-1.5">
         <span className="h-3 w-3 rounded border border-violet-300 bg-violet-100" />
         Admin duty
@@ -676,10 +758,18 @@ function Legend() {
 
 // ─── main component ──────────────────────────────────────────────────────────
 
+const EMPTY_EVENT_FORM = { title: "", eventDate: "", startTime: "", endTime: "", notes: "" };
+
 export default function CalendarView() {
   const [yearMonth, setYearMonth] = useState(todayYearMonth);
   const [data, setData] = useState<CalendarMonthData | null>(null);
   const [canManageRoster, setCanManageRoster] = useState(false);
+  const [canAddEvents, setCanAddEvents] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
+  const [editingEvent, setEditingEvent] = useState<CalendarEventItem | null>(null);
+  const [eventSaving, setEventSaving] = useState(false);
+  const [eventError, setEventError] = useState("");
   const [rosterStaff, setRosterStaff] = useState<RosterStaffPick[]>([]);
   const [rosterAvailability, setRosterAvailability] = useState<RosterAvailSlot[]>(
     [],
@@ -705,6 +795,7 @@ export default function CalendarView() {
     if (!res.ok) throw new Error(json.error ?? "Failed to load");
     setData(json);
     setCanManageRoster(Boolean(json.canManageRoster));
+    setCanAddEvents(Boolean(json.canAddEvents));
     setScopedToOwnClasses(Boolean(json.scopedToOwnClasses));
     if (json.scopedToOwnClasses) setShowAdmin(false);
     return json;
@@ -820,6 +911,66 @@ export default function CalendarView() {
     }
   }
 
+  function openNewEventForm(date?: string) {
+    setEditingEvent(null);
+    const today = localIso(new Date());
+    setEventForm({ ...EMPTY_EVENT_FORM, eventDate: date ?? today });
+    setEventError("");
+    setShowEventForm(true);
+  }
+
+  function openEditEvent(ev: CalendarEventItem) {
+    setEditingEvent(ev);
+    setEventForm({
+      title: ev.title,
+      eventDate: ev.eventDate,
+      startTime: ev.startTime,
+      endTime: ev.endTime,
+      notes: ev.notes,
+    });
+    setEventError("");
+    setShowEventForm(true);
+  }
+
+  async function saveEvent() {
+    const { title, eventDate, startTime, endTime, notes } = eventForm;
+    if (!title.trim() || !eventDate) { setEventError("Title and date are required."); return; }
+    setEventSaving(true);
+    setEventError("");
+    try {
+      const url = editingEvent ? `/api/calendar-events/${editingEvent.id}` : "/api/calendar-events";
+      const method = editingEvent ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), eventDate, startTime, endTime, notes }),
+      });
+      if (!res.ok) {
+        const d = (await res.json()) as { error?: string };
+        setEventError(d.error ?? "Failed to save");
+        return;
+      }
+      setShowEventForm(false);
+      setEditingEvent(null);
+      await loadCalendar(yearMonth);
+    } finally {
+      setEventSaving(false);
+    }
+  }
+
+  async function deleteEvent(id: string) {
+    if (!confirm("Delete this event?")) return;
+    setEventSaving(true);
+    try {
+      await fetch(`/api/calendar-events/${id}`, { method: "DELETE" });
+      setShowEventForm(false);
+      setEditingEvent(null);
+      await loadCalendar(yearMonth);
+    } finally {
+      setEventSaving(false);
+    }
+  }
+
   function navigateWeek(direction: -1 | 1) {
     if (!weekStart) return;
     const newWs = addDays(weekStart, direction * 7);
@@ -904,6 +1055,15 @@ export default function CalendarView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {canAddEvents && (
+            <button
+              type="button"
+              onClick={() => openNewEventForm()}
+              className="rounded-lg bg-pink-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-pink-700"
+            >
+              + Add event
+            </button>
+          )}
           <div className="flex rounded-lg border border-zinc-200 p-0.5 text-xs">
             {(["month", "week", "list"] as const).map((m) => (
               <button
@@ -971,6 +1131,95 @@ export default function CalendarView() {
         </div>
       </div>
 
+      {/* Event form */}
+      {showEventForm && (
+        <div className="rounded-xl border border-pink-200 bg-pink-50 p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-pink-900">
+            {editingEvent ? "Edit event" : "Add event"}
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-48">
+              <label className="block text-xs font-medium text-pink-800">Title</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Team meeting, Printer servicing, Delivery"
+                value={eventForm.title}
+                onChange={(e) => setEventForm((f) => ({ ...f, title: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-pink-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-pink-800">Date</label>
+              <input
+                type="date"
+                required
+                value={eventForm.eventDate}
+                onChange={(e) => setEventForm((f) => ({ ...f, eventDate: e.target.value }))}
+                className="mt-1 rounded-lg border border-pink-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-pink-800">Start time <span className="font-normal opacity-60">(optional)</span></label>
+              <input
+                type="time"
+                value={eventForm.startTime}
+                onChange={(e) => setEventForm((f) => ({ ...f, startTime: e.target.value }))}
+                className="mt-1 rounded-lg border border-pink-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-pink-800">End time <span className="font-normal opacity-60">(optional)</span></label>
+              <input
+                type="time"
+                value={eventForm.endTime}
+                onChange={(e) => setEventForm((f) => ({ ...f, endTime: e.target.value }))}
+                className="mt-1 rounded-lg border border-pink-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+              />
+            </div>
+            <div className="flex-1 min-w-48">
+              <label className="block text-xs font-medium text-pink-800">Notes <span className="font-normal opacity-60">(optional)</span></label>
+              <input
+                type="text"
+                placeholder="Extra details"
+                value={eventForm.notes}
+                onChange={(e) => setEventForm((f) => ({ ...f, notes: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-pink-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+              />
+            </div>
+          </div>
+          {eventError && <p className="mt-2 text-xs text-red-600">{eventError}</p>}
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={eventSaving}
+              onClick={saveEvent}
+              className="rounded-lg bg-pink-600 px-4 py-2 text-sm font-medium text-white hover:bg-pink-700 disabled:opacity-50"
+            >
+              {eventSaving ? "Saving…" : editingEvent ? "Save changes" : "Add event"}
+            </button>
+            {editingEvent && (
+              <button
+                type="button"
+                disabled={eventSaving}
+                onClick={() => deleteEvent(editingEvent.id)}
+                className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setShowEventForm(false); setEditingEvent(null); }}
+              className="text-sm text-zinc-500 hover:text-zinc-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Calendar content */}
       {loading ? (
         <div className="py-12 text-center text-sm text-zinc-400">Loading…</div>
@@ -985,7 +1234,9 @@ export default function CalendarView() {
             showLessons={showLessons}
             showAdmin={showAdmin}
             canManageRoster={canManageRoster}
+            canAddEvents={canAddEvents}
             onDaySelect={setSelectedDate}
+            onEditEvent={openEditEvent}
           />
         ) : viewMode === "week" && weekStart ? (
           <WeekView
@@ -996,9 +1247,11 @@ export default function CalendarView() {
             onNextWeek={() => navigateWeek(1)}
             onDaySelect={setSelectedDate}
             canManageRoster={canManageRoster}
+            canAddEvents={canAddEvents}
             selectedDate={selectedDate}
             showLessons={showLessons}
             showAdmin={showAdmin}
+            onEditEvent={openEditEvent}
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-zinc-200">
@@ -1007,9 +1260,11 @@ export default function CalendarView() {
               onWeekClick={(ws) => { setWeekStart(ws); setViewMode("week"); }}
               onDaySelect={setSelectedDate}
               canManageRoster={canManageRoster}
+              canAddEvents={canAddEvents}
               selectedDate={selectedDate}
               showLessons={showLessons}
               showAdmin={showAdmin}
+              onEditEvent={openEditEvent}
             />
           </div>
         )

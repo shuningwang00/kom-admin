@@ -134,6 +134,13 @@
       "when": 1749168000000,
       "tag": "0024_staff_clock",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1748254400000,
+      "tag": "0025_calendar_events",
+      "breakpoints": true
     }
   ]
 }

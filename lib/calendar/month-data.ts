@@ -15,6 +15,7 @@ import { sessionTutorDisplay } from "@/lib/tutors/display";
 import { formatCalendarDate, parseYearMonth } from "@/lib/dates/calendar";
 import { getDb } from "@/lib/db/index";
 import {
+  calendarEvents,
   classSessions,
   classes,
   holidayProgrammes,
@@ -64,6 +65,16 @@ export type CalendarAdminShift = {
 
 export type DayCoverageStatus = "ok" | "no_admin_no_class" | "no_admin_has_class";
 
+export type CalendarEventItem = {
+  id: string;
+  title: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+  createdBy: string;
+};
+
 export type CalendarHolSessionItem = {
   sessionId: string;
   programmeId: string;
@@ -80,6 +91,7 @@ export type CalendarDayData = {
   sessions: CalendarSessionItem[];
   holSessions: CalendarHolSessionItem[];
   adminShifts: CalendarAdminShift[];
+  events: CalendarEventItem[];
   coverageStatus: DayCoverageStatus;
 };
 
@@ -137,7 +149,7 @@ export async function loadCalendarMonth(
     )
     .orderBy(asc(classSessions.scheduledDate), asc(classes.time));
 
-  const [withExpectedRaw, oooRows, publishedShifts, holSessionRows] =
+  const [withExpectedRaw, oooRows, publishedShifts, holSessionRows, eventRows] =
     await Promise.all([
       attachExpectedAttendance(sessionRows),
       db
@@ -163,6 +175,11 @@ export async function loadCalendarMonth(
           ),
         )
         .orderBy(asc(holidayProgrammeSessions.scheduledDate)),
+      db
+        .select()
+        .from(calendarEvents)
+        .where(and(gte(calendarEvents.eventDate, startDate), lte(calendarEvents.eventDate, endDate)))
+        .orderBy(asc(calendarEvents.eventDate), asc(calendarEvents.startTime)),
     ]);
 
   await clearReliefTutorNeededWhereNoStudents(db, withExpectedRaw);
@@ -309,6 +326,20 @@ export async function loadCalendarMonth(
     }
   }
 
+  const eventsByDate = new Map<string, CalendarEventItem[]>();
+  for (const e of eventRows) {
+    if (!eventsByDate.has(e.eventDate)) eventsByDate.set(e.eventDate, []);
+    eventsByDate.get(e.eventDate)!.push({
+      id: e.id,
+      title: e.title,
+      eventDate: e.eventDate,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      notes: e.notes,
+      createdBy: e.createdBy,
+    });
+  }
+
   const adminByDate = new Map<string, CalendarAdminShift[]>();
   if (!tutorScope) {
   for (const s of publishedShifts) {
@@ -344,6 +375,7 @@ export async function loadCalendarMonth(
       sessions,
       holSessions: holByDate.get(iso) ?? [],
       adminShifts,
+      events: eventsByDate.get(iso) ?? [],
       coverageStatus,
     });
   }

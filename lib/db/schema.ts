@@ -532,3 +532,21 @@ export const holidayProgrammeAttendance = pgTable(
     index("hpa_participant_idx").on(t.participantId),
   ],
 );
+
+export const calendarEvents = pgTable(
+  "calendar_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    eventDate: date("event_date").notNull(),
+    startTime: text("start_time").notNull().default(""),
+    endTime: text("end_time").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("calendar_events_date_idx").on(t.eventDate),
+  ],
+);

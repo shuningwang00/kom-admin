@@ -12,6 +12,7 @@ function isPublicPath(pathname: string): boolean {
   if (pathname === "/api/auth/login") return true;
   if (pathname === "/api/auth/status") return true;
   if (pathname.startsWith("/api/auth/google")) return true;
+  if (pathname.startsWith("/api/cron/")) return true;
   if (isPdfDevPreviewEnabled() && pathname.startsWith("/api/dev/pdf-preview")) {
     return true;
   }
