@@ -10,24 +10,51 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte } from "dr
 
 type Db = ReturnType<typeof getDb>;
 
+type EnrollmentRow = {
+  classId: string;
+  enrollmentStartedAt: string | null;
+  trialAttendedAt: string | null;
+  enrollmentEndedAt: string | null;
+  pauseStartedAt: string | null;
+  pauseEndedAt: string | null;
+  studentStartDate: string | null;
+};
+
+let _enrollmentRowsCache: EnrollmentRow[] | null = null;
+let _enrollmentRowsCacheExpiry = 0;
+
+export function invalidateEnrollmentCache() {
+  _enrollmentRowsCache = null;
+}
+
+async function getEnrollmentRows(db: Db): Promise<EnrollmentRow[]> {
+  if (_enrollmentRowsCache && Date.now() < _enrollmentRowsCacheExpiry) {
+    return _enrollmentRowsCache;
+  }
+  const rows = await db
+    .select({
+      classId: enrollments.classId,
+      enrollmentStartedAt: enrollments.startedAt,
+      trialAttendedAt: enrollments.trialAttendedAt,
+      enrollmentEndedAt: enrollments.endedAt,
+      pauseStartedAt: enrollments.pauseStartedAt,
+      pauseEndedAt: enrollments.pauseEndedAt,
+      studentStartDate: students.startDate,
+    })
+    .from(enrollments)
+    .innerJoin(students, eq(enrollments.studentId, students.id))
+    .where(isNull(students.archivedAt));
+  _enrollmentRowsCache = rows;
+  _enrollmentRowsCacheExpiry = Date.now() + 60_000;
+  return rows;
+}
+
 async function activeEnrollmentClassIds(
   db: Db,
   sessionDate?: string,
 ): Promise<Set<string>> {
   const [enrollmentRows, trialLeadRows] = await Promise.all([
-    db
-      .select({
-        classId: enrollments.classId,
-        enrollmentStartedAt: enrollments.startedAt,
-        trialAttendedAt: enrollments.trialAttendedAt,
-        enrollmentEndedAt: enrollments.endedAt,
-        pauseStartedAt: enrollments.pauseStartedAt,
-        pauseEndedAt: enrollments.pauseEndedAt,
-        studentStartDate: students.startDate,
-      })
-      .from(enrollments)
-      .innerJoin(students, eq(enrollments.studentId, students.id))
-      .where(isNull(students.archivedAt)),
+    getEnrollmentRows(db),
     sessionDate
       ? db
           .select({ classId: trialLeads.classId })

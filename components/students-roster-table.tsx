@@ -69,7 +69,8 @@ function DetailField({
 }
 
 type StudentEditForm = {
-  name: string;
+  firstName: string;
+  lastName: string;
   primaryContactType: ContactType;
   primaryContact: string;
   secondaryContactType: ContactType | "";
@@ -81,8 +82,10 @@ type StudentEditForm = {
 };
 
 function studentToEditForm(s: StudentRosterItem): StudentEditForm {
+  const parts = s.name.trim().split(" ");
   return {
-    name: s.name,
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
     primaryContactType: s.primaryContactType ?? "parent",
     primaryContact: s.primaryContact ?? "",
     secondaryContactType: s.secondaryContactType ?? "",
@@ -208,7 +211,7 @@ export function StudentsRosterTable({
 
   async function saveEditStudent(studentId: string) {
     if (!editForm) return;
-    const name = editForm.name.trim();
+    const name = `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim();
     if (!name) {
       onError("Name is required.");
       return;
@@ -374,16 +377,30 @@ export function StudentsRosterTable({
                               void saveEditStudent(s.id);
                             }}
                           >
-                            <label className="block text-sm sm:col-span-2">
+                            <label className="block text-sm">
                               <span className="font-medium text-zinc-700">
-                                Name *
+                                First name *
                               </span>
                               <input
                                 required
-                                value={editForm.name}
+                                value={editForm.firstName}
                                 onChange={(e) =>
                                   setEditForm((f) =>
-                                    f ? { ...f, name: e.target.value } : f,
+                                    f ? { ...f, firstName: e.target.value } : f,
+                                  )
+                                }
+                                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                              />
+                            </label>
+                            <label className="block text-sm">
+                              <span className="font-medium text-zinc-700">
+                                Last name
+                              </span>
+                              <input
+                                value={editForm.lastName}
+                                onChange={(e) =>
+                                  setEditForm((f) =>
+                                    f ? { ...f, lastName: e.target.value } : f,
                                   )
                                 }
                                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"

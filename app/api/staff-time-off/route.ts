@@ -2,6 +2,7 @@ import { jsonError, jsonOk } from "@/lib/api/json";
 import {
   hasStaffPrivileges,
   isOwner,
+  isOwnerOrAdmin,
   isTutor,
   requireEffectiveUser,
 } from "@/lib/auth/access";
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     const staffEmailParam = searchParams.get("staffEmail")?.trim().toLowerCase();
 
     const db = getDb();
-    if (isOwner(user)) {
+    if (await isOwnerOrAdmin(user)) {
       const staff = await listStaffTimeOffTargets(db);
       if (!staffEmailParam) {
         return jsonOk({ records: [], staff, staffEmail: null, actingAsOwner: true });
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     const db = getDb();
     let staffEmail = user.email.trim().toLowerCase();
 
-    if (isOwner(user)) {
+    if (await isOwnerOrAdmin(user)) {
       const picked = String(body.staffEmail ?? "").trim().toLowerCase();
       if (!picked) return jsonError("Select a team member.", 400);
       const staff = await listStaffTimeOffTargets(db);

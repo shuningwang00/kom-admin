@@ -62,7 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/attendance", label: "By day", roles: ["tutor"], permission: { role: "tutor", flag: "viewByDay" } },
   { href: "/programmes", label: "Programmes", roles: ["owner", "staff"] },
   { href: "/students", label: "Students", roles: ["owner", "staff", "tutor"], permission: { role: "tutor", flag: "viewStudents" } },
-  { href: "/schedule", label: "Schedule", roles: ["owner"] },
+  { href: "/schedule", label: "Schedule", roles: ["owner", "staff"] },
   { href: "/enrollments", label: "Enrollments", roles: ["owner", "staff"] },
   { href: "/billing", label: "Billing", roles: ["owner", "staff"] },
 ];

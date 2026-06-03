@@ -13,7 +13,10 @@ import { StudentsWithdrawnTable } from "@/components/students-withdrawn-table";
 import { formatClassDropdownLabel } from "@/lib/classes/display-label";
 import type { ContactType } from "@/lib/contacts";
 import type { StudentRosterItem } from "@/lib/students/roster";
-import { useCallback, useEffect, useState } from "react";
+import useSWR from "swr";
+import { fetcher } from "@/lib/swr";
+import { SkeletonTable } from "@/components/skeleton";
+import { useState } from "react";
 
 type Klass = {
   id: string;
@@ -25,7 +28,8 @@ type Klass = {
 };
 
 const emptyForm = {
-  name: "",
+  firstName: "",
+  lastName: "",
   primaryContactType: "parent" as ContactType,
   primaryContact: "",
   secondaryContactType: "" as ContactType | "",
@@ -39,10 +43,7 @@ const emptyForm = {
 };
 
 export default function StudentsManager() {
-  const [students, setStudents] = useState<StudentRosterItem[]>([]);
-  const [classes, setClasses] = useState<Klass[]>([]);
   const [form, setForm] = useState(emptyForm);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,37 +63,18 @@ export default function StudentsManager() {
     emptySiblingGroup,
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const sRes = await fetch(
+  const { data: studentsData, isLoading: loading, error: loadError, mutate: mutateStudents } =
+    useSWR<{ students: StudentRosterItem[] }>(
       `/api/students?withdrawn=${showWithdrawn ? "1" : "0"}`,
+      fetcher,
     );
-    if (!sRes.ok) {
-      setError("Failed to load students");
-      setLoading(false);
-      return;
-    }
-    const sData = (await sRes.json()) as { students: StudentRosterItem[] };
-    setStudents(sData.students);
-    setLoading(false);
-  }, [showWithdrawn]);
+  const { data: classesData } = useSWR<{ classes: Klass[] }>(
+    showRegister ? "/api/classes" : null,
+    fetcher,
+  );
 
-  const loadClasses = useCallback(async () => {
-    const cRes = await fetch("/api/classes");
-    if (cRes.ok) {
-      const cData = (await cRes.json()) as { classes: Klass[] };
-      setClasses(cData.classes);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (showRegister) loadClasses();
-  }, [showRegister, loadClasses]);
+  const students = studentsData?.students ?? [];
+  const classes = classesData?.classes ?? [];
 
   async function onRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -105,7 +87,7 @@ export default function StudentsManager() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: form.name,
+          name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
           primaryContact: form.primaryContact,
           primaryContactType: form.primaryContactType,
           secondaryContact: form.secondaryContact,
@@ -146,11 +128,11 @@ export default function StudentsManager() {
       return;
     }
 
-    const savedName = data.student?.name ?? form.name;
+    const savedName = data.student?.name ?? `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
     setForm(emptyForm);
     setSiblingGroup(emptySiblingGroup);
     setShowRegister(false);
-    await load();
+    await mutateStudents();
     setSuccess(`Saved ${savedName} to the database.`);
   }
 
@@ -171,7 +153,7 @@ export default function StudentsManager() {
     setReinstateTarget(null);
     setShowWithdrawn(false);
     setSuccess(`${target.studentName} is back in ${target.classLabel}.`);
-    load();
+    void mutateStudents();
   }
 
   async function archiveStudent(id: string) {
@@ -181,7 +163,7 @@ export default function StudentsManager() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archive: true }),
     });
-    load();
+    void mutateStudents();
   }
 
   async function confirmDeleteStudent() {
@@ -200,7 +182,7 @@ export default function StudentsManager() {
     }
     setDeleteTarget(null);
     setSuccess(`${deleteTarget.name} and all related records were permanently deleted.`);
-    load();
+    void mutateStudents();
   }
 
   return (
@@ -238,12 +220,12 @@ export default function StudentsManager() {
             {success}
           </p>
         )}
-        {error && (
+        {(loadError || error) && (
           <p
             className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"
             role="alert"
           >
-            {error}
+            {loadError?.message ?? error}
           </p>
         )}
 
@@ -263,12 +245,20 @@ export default function StudentsManager() {
               instead — convert here only after they enroll.
             </p>
             <form onSubmit={onRegister} className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-zinc-700">Name *</span>
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">First name *</span>
             <input
               required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              value={form.firstName}
+              onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">Last name</span>
+            <input
+              value={form.lastName}
+              onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
             />
           </label>
@@ -395,7 +385,7 @@ export default function StudentsManager() {
         )}
 
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <SkeletonTable rows={7} cols={3} />
         ) : showWithdrawn ? (
           <StudentsWithdrawnTable
             students={students}
@@ -410,7 +400,7 @@ export default function StudentsManager() {
             showArchived={false}
             onArchive={archiveStudent}
             onDeleteRequest={(id, name) => setDeleteTarget({ id, name })}
-            onSiblingSaved={load}
+            onSiblingSaved={() => void mutateStudents()}
             onError={setError}
             onSuccess={setSuccess}
           />

@@ -1,10 +1,10 @@
 import AppShell from "@/components/app-shell";
-import ClassesManager from "@/components/classes-manager";
+import ScheduleManager from "@/components/schedule/schedule-manager";
 
 export default function SchedulePage() {
   return (
     <AppShell title="Schedule">
-      <ClassesManager />
+      <ScheduleManager />
     </AppShell>
   );
 }

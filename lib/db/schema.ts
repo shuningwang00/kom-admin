@@ -112,6 +112,9 @@ export const classes = pgTable(
     tutor: text("tutor").notNull().default(""),
     weekday: weekdayEnum("weekday").notNull().default("other"),
     isActive: boolean("is_active").notNull().default(true),
+    isFull: boolean("is_full").notNull().default(false),
+    feePerLesson: text("fee_per_lesson").notNull().default(""),
+    description: text("description").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

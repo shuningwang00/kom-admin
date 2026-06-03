@@ -20,10 +20,20 @@ type AllowlistResolved = {
   permissionsJson: string;
 };
 
+const _allowlistCache = new Map<string, { value: AllowlistResolved | null; expiresAt: number }>();
+const ALLOWLIST_TTL = 60_000;
+
+export function invalidateAllowlistCache(email: string) {
+  _allowlistCache.delete(email.trim().toLowerCase());
+}
+
 async function resolveFromAllowlist(email: string): Promise<AllowlistResolved | null> {
   if (isOwnerEmail(email)) {
     return { role: "owner", allowlistRole: "owner", tutorMatch: "", permissionsJson: "" };
   }
+
+  const cached = _allowlistCache.get(email);
+  if (cached && Date.now() < cached.expiresAt) return cached.value;
 
   const db = getDb();
   const [row] = await db
@@ -36,22 +46,27 @@ async function resolveFromAllowlist(email: string): Promise<AllowlistResolved | 
     .where(and(eq(siteAllowlist.email, email), eq(siteAllowlist.isActive, true)))
     .limit(1);
 
-  if (!row) return null;
-  const allowlistRole = row.role as AllowlistRole;
-  let role: UserRole;
-  if (allowlistRole === "staff" || allowlistRole === "staff_tutor") {
-    role = "staff";
-  } else if (allowlistRole === "relief_tutor") {
-    role = "relief_tutor";
-  } else {
-    role = "tutor";
+  let value: AllowlistResolved | null = null;
+  if (row) {
+    const allowlistRole = row.role as AllowlistRole;
+    let role: UserRole;
+    if (allowlistRole === "staff" || allowlistRole === "staff_tutor") {
+      role = "staff";
+    } else if (allowlistRole === "relief_tutor") {
+      role = "relief_tutor";
+    } else {
+      role = "tutor";
+    }
+    value = {
+      role,
+      allowlistRole,
+      tutorMatch: row.tutorMatch ?? "",
+      permissionsJson: row.permissionsJson ?? "",
+    };
   }
-  return {
-    role,
-    allowlistRole,
-    tutorMatch: row.tutorMatch ?? "",
-    permissionsJson: row.permissionsJson ?? "",
-  };
+
+  _allowlistCache.set(email, { value, expiresAt: Date.now() + ALLOWLIST_TTL });
+  return value;
 }
 
 /** @deprecated use resolveFromAllowlist */

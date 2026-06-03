@@ -25,6 +25,7 @@ const TUTOR_PERM_ROWS: PermRow[] = [
 ];
 
 const STAFF_PERM_ROWS: PermRow[] = [
+  { flag: "isAdmin", label: "Admin", description: "Near-owner access: approve claims, view all time-off, manage clock entries, edit schedule" },
   { flag: "generateSessions", label: "Generate sessions", description: "Can generate weekly sessions for a month" },
 ];
 
@@ -211,7 +212,7 @@ export default function PermissionsManager() {
       <section>
         <h2 className="mb-1 text-base font-semibold text-zinc-900">Staff</h2>
         <p className="mb-4 text-sm text-zinc-500">
-          Staff can access attendance, billing, makeups, and trials. Extra capabilities below.
+          Staff can access attendance, billing, makeups, and trials. Promote to <strong>Admin</strong> for near-owner access, or grant individual capabilities below.
         </p>
         {staff.length === 0 ? (
           <p className="text-sm text-zinc-400">No staff on the team yet.</p>

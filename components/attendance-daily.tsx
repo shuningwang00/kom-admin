@@ -11,7 +11,10 @@ import { sessionShowsReliefTutorNeeded } from "@/lib/attendance/relief-tutor-ses
 import type { SessionExpectedCounts } from "@/lib/attendance/session-expected-labels";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import useSWR, { mutate as globalMutate } from "swr";
+import { fetcher } from "@/lib/swr";
+import { SkeletonList } from "@/components/skeleton";
+import { useState } from "react";
 
 type SessionRow = {
   session: {
@@ -84,110 +87,62 @@ function formatHolTimeLabel(label: string): string {
   return `${to12h(Number(m[1]), m[2])} - ${to12h(Number(m[3]), m[4])}`;
 }
 
+type DayData = {
+  sessions: SessionRow[];
+  holSessions: HolSessionRow[];
+  role: string;
+  canGenerateSessions: boolean;
+};
+type MonthData = { sessions: SessionRow[]; holSessions: HolSessionRow[] };
+type UnmarkedData = { sessions: SessionRow[] };
+
 export default function AttendanceDaily() {
   const [viewMode, setViewMode] = useState<"day" | "month">("day");
   const [date, setDate] = useState(() => readAttendanceDailyDate());
-
-  useEffect(() => {
-    const stored = readAttendanceDailyDate();
-    setDate((current) => (current === stored ? current : stored));
-  }, []);
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [holSessions, setHolSessions] = useState<HolSessionRow[]>([]);
   const [yearMonth, setYearMonth] = useState(() =>
     new Date().toISOString().slice(0, 7),
   );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [role, setRole] = useState<string>("admin");
-  const [canGenerateSessions, setCanGenerateSessions] = useState(false);
   const [showUnmarkedPast, setShowUnmarkedPast] = useState(false);
-  const [unmarkedPast, setUnmarkedPast] = useState<SessionRow[]>([]);
-  const [unmarkedLoading, setUnmarkedLoading] = useState(false);
-  const [unmarkedError, setUnmarkedError] = useState("");
-
-  // Month view state
   const [monthViewMonth, setMonthViewMonth] = useState(() =>
     new Date().toISOString().slice(0, 7),
   );
-  const [monthSessions, setMonthSessions] = useState<SessionRow[]>([]);
-  const [monthHolSessions, setMonthHolSessions] = useState<HolSessionRow[]>([]);
-  const [monthLoading, setMonthLoading] = useState(false);
-  const [monthError, setMonthError] = useState("");
+  const [actionError, setActionError] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const res = await fetch(`/api/sessions?date=${date}`);
-    setLoading(false);
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      setError(data.error ?? "Failed to load");
-      return;
-    }
-    const data = (await res.json()) as {
-      sessions: SessionRow[];
-      holSessions?: HolSessionRow[];
-      role: string;
-      canGenerateSessions: boolean;
-    };
-    setSessions(data.sessions);
-    setHolSessions(data.holSessions ?? []);
-    setRole(data.role);
-    setCanGenerateSessions(data.canGenerateSessions ?? false);
-  }, [date]);
+  const today = todayCalendarDate();
 
-  const loadMonth = useCallback(async (ym: string) => {
-    setMonthLoading(true);
-    setMonthError("");
-    const res = await fetch(`/api/sessions?month=${ym}`);
-    setMonthLoading(false);
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      setMonthError(data.error ?? "Failed to load");
-      return;
-    }
-    const data = (await res.json()) as { sessions: SessionRow[]; holSessions?: HolSessionRow[] };
-    setMonthSessions(data.sessions);
-    setMonthHolSessions(data.holSessions ?? []);
-  }, []);
-
-  useEffect(() => {
-    if (viewMode === "month") loadMonth(monthViewMonth);
-  }, [viewMode, monthViewMonth, loadMonth]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-
-  const loadUnmarkedPast = useCallback(async () => {
-    setUnmarkedLoading(true);
-    setUnmarkedError("");
-    const today = todayCalendarDate();
-    const res = await fetch(
-      `/api/sessions/unmarked-past?before=${encodeURIComponent(today)}`,
+  const { data: dayData, isLoading: loading, error: loadError } =
+    useSWR<DayData>(`/api/sessions?date=${date}`, fetcher);
+  const { data: monthData, isLoading: monthLoading, error: monthError } =
+    useSWR<MonthData>(
+      viewMode === "month" ? `/api/sessions?month=${monthViewMonth}` : null,
+      fetcher,
     );
-    setUnmarkedLoading(false);
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      setUnmarkedError(data.error ?? "Failed to load unmarked sessions");
-      return;
-    }
-    const data = (await res.json()) as { sessions: SessionRow[] };
-    setUnmarkedPast(data.sessions);
-  }, []);
+  const {
+    data: unmarkedData,
+    isLoading: unmarkedLoading,
+    error: unmarkedError,
+    mutate: refreshUnmarked,
+  } = useSWR<UnmarkedData>(
+    showUnmarkedPast
+      ? `/api/sessions/unmarked-past?before=${encodeURIComponent(today)}`
+      : null,
+    fetcher,
+  );
 
-  async function toggleUnmarkedPast() {
-    const next = !showUnmarkedPast;
-    setShowUnmarkedPast(next);
-    if (next && unmarkedPast.length === 0 && !unmarkedLoading) {
-      await loadUnmarkedPast();
-    }
+  const sessions = dayData?.sessions ?? [];
+  const holSessions = dayData?.holSessions ?? [];
+  const role = dayData?.role ?? "admin";
+  const canGenerateSessions = dayData?.canGenerateSessions ?? false;
+  const monthSessions = monthData?.sessions ?? [];
+  const monthHolSessions = monthData?.holSessions ?? [];
+  const unmarkedPast = unmarkedData?.sessions ?? [];
+
+  function toggleUnmarkedPast() {
+    setShowUnmarkedPast((v) => !v);
   }
 
   async function generateMonth() {
-    setError("");
+    setActionError("");
     const res = await fetch("/api/sessions/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -195,11 +150,11 @@ export default function AttendanceDaily() {
     });
     const data = (await res.json()) as { error?: string; result?: object };
     if (!res.ok) {
-      setError(data.error ?? "Generate failed");
+      setActionError(data.error ?? "Generate failed");
       return;
     }
     alert(`Sessions: ${JSON.stringify(data.result)}`);
-    load();
+    await globalMutate(`/api/sessions?date=${date}`);
   }
 
   // Group month sessions by date for month view
@@ -217,7 +172,6 @@ export default function AttendanceDaily() {
     return acc;
   }, {});
   const monthDates = [...new Set([...Object.keys(monthByDate), ...Object.keys(monthHolByDate)])].sort();
-  const today = todayCalendarDate();
 
   return (
     <div className="space-y-6">
@@ -261,9 +215,9 @@ export default function AttendanceDaily() {
               className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-50"
             >Today</button>
           </div>
-          {monthError && <p className="text-sm text-red-600">{monthError}</p>}
+          {monthError && <p className="text-sm text-red-600">{monthError.message}</p>}
           {monthLoading ? (
-            <p className="text-sm text-zinc-500">Loading…</p>
+            <SkeletonList count={5} />
           ) : monthDates.length === 0 ? (
             <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm">
               No sessions with enrolled students this month.
@@ -436,17 +390,17 @@ export default function AttendanceDaily() {
             <button
               type="button"
               disabled={unmarkedLoading}
-              onClick={() => void loadUnmarkedPast()}
+              onClick={() => void refreshUnmarked()}
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
             >
               {unmarkedLoading ? "Loading…" : "Refresh"}
             </button>
           </div>
           {unmarkedError && (
-            <p className="px-4 py-2 text-sm text-red-600">{unmarkedError}</p>
+            <p className="px-4 py-2 text-sm text-red-600">{unmarkedError.message}</p>
           )}
           {unmarkedLoading && unmarkedPast.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-amber-900/70">Loading…</p>
+            <div className="p-4"><SkeletonList count={3} /></div>
           ) : unmarkedPast.length === 0 ? (
             <p className="px-4 py-6 text-sm text-amber-900/80">
               No past sessions waiting for attendance — all caught up.
@@ -512,10 +466,12 @@ export default function AttendanceDaily() {
         </section>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {(loadError || actionError) && (
+        <p className="text-sm text-red-600">{loadError?.message ?? actionError}</p>
+      )}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <SkeletonList count={4} />
       ) : (
         <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white shadow-sm">
           {sessions.map(

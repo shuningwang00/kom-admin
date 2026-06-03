@@ -35,16 +35,16 @@ export const PEOPLE_NAV_ITEMS = [
     tutorNeedsViewPeople: false,
   },
   {
-    href: "/people/payroll",
-    label: "Payroll",
-    tabKey: "payroll" as const,
-    tutorNeedsViewPeople: true,
-  },
-  {
     href: "/people/claims",
     label: "Claims",
     tabKey: "claims" as const,
     tutorNeedsViewPeople: false,
+  },
+  {
+    href: "/people/payroll",
+    label: "Payroll",
+    tabKey: "payroll" as const,
+    tutorNeedsViewPeople: true,
   },
 ] as const;
 

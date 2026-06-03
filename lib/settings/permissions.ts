@@ -11,6 +11,7 @@ export type TutorPermissions = {
 
 export type StaffPermissions = {
   generateSessions: boolean;
+  isAdmin: boolean;
 };
 
 export type AppPermissions = {
@@ -27,14 +28,25 @@ export const DEFAULT_PERMISSIONS: AppPermissions = {
   },
   staff: {
     generateSessions: false,
+    isAdmin: false,
   },
 };
 
 const SETTINGS_KEY = "app_permissions";
 
+let _permissionsCache: AppPermissions | null = null;
+let _permissionsCacheExpiry = 0;
+
+export function invalidatePermissionsCache() {
+  _permissionsCache = null;
+}
+
 export async function loadPermissions(
   db: ReturnType<typeof getDb>,
 ): Promise<AppPermissions> {
+  if (_permissionsCache && Date.now() < _permissionsCacheExpiry) {
+    return _permissionsCache;
+  }
   try {
     const [row] = await db
       .select({ value: siteSettings.value })
@@ -45,10 +57,12 @@ export async function loadPermissions(
     if (!row?.value) return DEFAULT_PERMISSIONS;
 
     const parsed = JSON.parse(row.value) as Partial<AppPermissions>;
-    return {
+    _permissionsCache = {
       tutor: { ...DEFAULT_PERMISSIONS.tutor, ...parsed.tutor },
       staff: { ...DEFAULT_PERMISSIONS.staff, ...parsed.staff },
     };
+    _permissionsCacheExpiry = Date.now() + 60_000;
+    return _permissionsCache;
   } catch {
     return DEFAULT_PERMISSIONS;
   }
@@ -66,6 +80,7 @@ export async function savePermissions(
       target: siteSettings.key,
       set: { value, updatedAt: new Date() },
     });
+  invalidatePermissionsCache();
 }
 
 /**

@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { isOwner, requireEffectiveUser } from "@/lib/auth/access";
+import { isOwnerOrAdmin, requireEffectiveUser } from "@/lib/auth/access";
 import { getClaim, reviewClaim } from "@/lib/people/claims";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export async function PATCH(
 ) {
   try {
     const user = await requireEffectiveUser();
-    if (!isOwner(user)) return jsonError("Forbidden", 403);
+    if (!await isOwnerOrAdmin(user)) return jsonError("Forbidden", 403);
 
     const { id } = await params;
     const body = (await request.json()) as {

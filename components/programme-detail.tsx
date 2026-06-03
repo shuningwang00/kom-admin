@@ -79,7 +79,8 @@ const LEVEL_OPTIONS = [
 ];
 
 const emptyLeadForm = {
-  name: "",
+  firstName: "",
+  lastName: "",
   level: "",
   primaryContactType: "parent" as ContactType | "",
   primaryContact: "",
@@ -258,7 +259,11 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
       const body =
         addMode === "student"
           ? { studentId: selectedStudentId, fee: participantFee }
-          : { ...leadForm, fee: participantFee };
+          : {
+              ...leadForm,
+              name: `${leadForm.firstName.trim()} ${leadForm.lastName.trim()}`.trim(),
+              fee: participantFee,
+            };
 
       const res = await fetch(`/api/programmes/${programmeId}/participants`, {
         method: "POST",
@@ -682,12 +687,21 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
             {addMode === "lead" ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
-                  <span className="font-medium text-zinc-700">Name</span>
+                  <span className="font-medium text-zinc-700">First name</span>
                   <input
                     type="text"
                     required
-                    value={leadForm.name}
-                    onChange={(e) => setLeadForm((f) => ({ ...f, name: e.target.value }))}
+                    value={leadForm.firstName}
+                    onChange={(e) => setLeadForm((f) => ({ ...f, firstName: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-zinc-700">Last name</span>
+                  <input
+                    type="text"
+                    value={leadForm.lastName}
+                    onChange={(e) => setLeadForm((f) => ({ ...f, lastName: e.target.value }))}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                   />
                 </label>

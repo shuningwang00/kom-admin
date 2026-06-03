@@ -361,7 +361,13 @@ export default function BillingDashboard() {
 
       {googleStatus?.connected && googleStatus.method === "oauth" ? (
         <p className="mb-4 text-sm text-green-700">
-          Google Sheets connected (signed in as your account).
+          Google Sheets connected (signed in as your account).{" "}
+          <a
+            href="/api/auth/google"
+            className="font-medium underline hover:text-green-900"
+          >
+            Reconnect
+          </a>
         </p>
       ) : null}
 

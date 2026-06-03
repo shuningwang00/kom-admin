@@ -4,6 +4,9 @@ import {
   getTutorMatch,
   tutorCanAccessClass,
 } from "@/lib/auth/user";
+import { getDb } from "@/lib/db/index";
+import { siteAllowlist } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export function isOwner(user: SessionUser): boolean {
   return user.role === "owner";
@@ -29,6 +32,28 @@ export function isTutorLike(user: SessionUser): boolean {
 /** Owner or office staff — all classes, billing, attendance. */
 export function hasStaffPrivileges(user: SessionUser): boolean {
   return user.role === "owner" || user.role === "staff";
+}
+
+/** Staff with isAdmin permission — near-owner level (claims approval, all time-off, schedule edits). */
+export async function isAdminStaff(user: SessionUser): Promise<boolean> {
+  if (!isStaff(user)) return false;
+  const db = getDb();
+  const [row] = await db
+    .select({ permissionsJson: siteAllowlist.permissionsJson })
+    .from(siteAllowlist)
+    .where(eq(siteAllowlist.email, user.email.trim().toLowerCase()));
+  if (!row?.permissionsJson) return false;
+  try {
+    const p = JSON.parse(row.permissionsJson) as Record<string, boolean>;
+    return p.isAdmin === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Owner or admin staff. */
+export async function isOwnerOrAdmin(user: SessionUser): Promise<boolean> {
+  return isOwner(user) || await isAdminStaff(user);
 }
 
 export async function requireEffectiveUser(): Promise<SessionUser> {
@@ -63,13 +88,11 @@ export async function assertCanManageStudents(): Promise<SessionUser> {
   return assertCanReadRoster();
 }
 
-/** Add or edit class definitions. */
+/** Add or edit class definitions. Owner or admin staff. */
 export async function assertCanMutateClasses(): Promise<SessionUser> {
   const user = await requireEffectiveUser();
-  if (!isOwner(user)) {
-    throw new Error("Only the centre owner can add or edit classes.");
-  }
-  return user;
+  if (await isOwnerOrAdmin(user)) return user;
+  throw new Error("Only the owner or admin staff can add or edit classes.");
 }
 
 /** Billing dashboard, PDFs, mark INV. */

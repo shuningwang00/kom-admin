@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { isOwner, requireEffectiveUser } from "@/lib/auth/access";
+import { isOwnerOrAdmin, requireEffectiveUser } from "@/lib/auth/access";
 import {
   createClockEntry,
   getStaffMember,
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
       return jsonError("Query ?month=YYYY-MM required.");
     }
-    const ownerView = isOwner(user);
+    const ownerView = await isOwnerOrAdmin(user);
     const filterEmail = ownerView ? undefined : user.email;
     // Use SGT (UTC+8) so the date matches what was stored from the browser
     const now = new Date();
@@ -55,9 +55,9 @@ export async function POST(request: Request) {
       return jsonError("entryDate, startTime, endTime are required.");
     }
 
-    // Staff can only create entries for themselves
-    const targetEmail = isOwner(user) ? (staffEmail ?? user.email) : user.email;
-    const targetName = isOwner(user) ? (staffName ?? user.displayName ?? "") : (user.displayName ?? "");
+    const elevated = await isOwnerOrAdmin(user);
+    const targetEmail = elevated ? (staffEmail ?? user.email) : user.email;
+    const targetName = elevated ? (staffName ?? user.displayName ?? "") : (user.displayName ?? "");
 
     const entry = await createClockEntry({
       staffEmail: targetEmail,

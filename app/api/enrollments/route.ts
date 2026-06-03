@@ -2,6 +2,7 @@ import {
   assertCanManageStudents,
   assertCanReadRoster,
 } from "@/lib/auth/access";
+import { invalidateEnrollmentCache } from "@/lib/attendance/list-sessions";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { billingGroups, classes, enrollments, students } from "@/lib/db/schema";
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
         notes: String(body.notes ?? "").trim(),
       })
       .returning();
+    invalidateEnrollmentCache();
     return jsonOk({ enrollment: created }, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";

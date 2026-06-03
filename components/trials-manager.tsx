@@ -8,7 +8,10 @@ import {
   type ContactType,
 } from "@/lib/contacts";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import useSWR from "swr";
+import { fetcher } from "@/lib/swr";
+import { SkeletonList } from "@/components/skeleton";
+import { useState } from "react";
 
 type Trial = {
   id: string;
@@ -38,7 +41,8 @@ type Klass = {
 };
 
 const emptyForm = {
-  name: "",
+  firstName: "",
+  lastName: "",
   primaryContactType: "parent" as ContactType,
   primaryContact: "",
   secondaryContactType: "" as ContactType | "",
@@ -51,10 +55,7 @@ const emptyForm = {
 };
 
 export default function TrialsManager() {
-  const [trials, setTrials] = useState<Trial[]>([]);
-  const [classes, setClasses] = useState<Klass[]>([]);
   const [form, setForm] = useState(emptyForm);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,31 +67,28 @@ export default function TrialsManager() {
     registrationFeeDue: false,
     classId: "",
   });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    firstName: "",
+    lastName: "",
+    primaryContactType: "parent" as ContactType,
+    primaryContact: "",
+    secondaryContactType: "" as ContactType | "",
+    secondaryContact: "",
+    school: "",
+    parentName: "",
+    trialDate: "",
+    classId: "",
+    notes: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const [tRes, cRes] = await Promise.all([
-      fetch(`/api/trials?status=${view}`),
-      fetch("/api/classes"),
-    ]);
-    if (!tRes.ok) {
-      setError("Failed to load trials");
-      setLoading(false);
-      return;
-    }
-    const tData = (await tRes.json()) as { trials: Trial[] };
-    setTrials(tData.trials);
-    if (cRes.ok) {
-      const cData = (await cRes.json()) as { classes: Klass[] };
-      setClasses(cData.classes);
-    }
-    setLoading(false);
-  }, [view]);
+  const { data: trialsData, isLoading: loading, error: loadError, mutate: mutateTrials } =
+    useSWR<{ trials: Trial[] }>(`/api/trials?status=${view}`, fetcher);
+  const { data: classesData } = useSWR<{ classes: Klass[] }>("/api/classes", fetcher);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const trials = trialsData?.trials ?? [];
+  const classes = classesData?.classes ?? [];
 
   function classLabel(classId: string | null) {
     if (!classId) return "—";
@@ -109,7 +107,7 @@ export default function TrialsManager() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: form.name,
+          name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
           primaryContact: form.primaryContact,
           primaryContactType: form.primaryContactType,
           secondaryContact: form.secondaryContact,
@@ -136,8 +134,8 @@ export default function TrialsManager() {
 
     setForm(emptyForm);
     setShowForm(false);
-    await load();
-    setSuccess(`Saved ${data.trial?.name ?? form.name} as a free trial lead.`);
+    await mutateTrials();
+    setSuccess(`Saved ${data.trial?.name ?? `${form.firstName.trim()} ${form.lastName.trim()}`.trim()} as a free trial lead.`);
   }
 
   function startConvert(trial: Trial) {
@@ -170,11 +168,63 @@ export default function TrialsManager() {
       return;
     }
     setConvertingId(null);
-    await load();
+    await mutateTrials();
     setSuccess(
       `${data.student?.name ?? "Student"} is now on the roster. ` +
         "They are not listed under active trials anymore.",
     );
+  }
+
+  function startEdit(t: Trial) {
+    const parts = t.name.trim().split(" ");
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    setEditingId(t.id);
+    setConvertingId(null);
+    setEditForm({
+      firstName,
+      lastName,
+      primaryContactType: (t.primaryContactType ?? "parent") as ContactType,
+      primaryContact: t.primaryContact,
+      secondaryContactType: (t.secondaryContactType ?? "") as ContactType | "",
+      secondaryContact: t.secondaryContact,
+      school: t.school,
+      parentName: t.parentName,
+      trialDate: t.trialDate ?? "",
+      classId: t.classId ?? "",
+      notes: t.notes,
+    });
+  }
+
+  async function submitEdit(e: React.FormEvent, trialId: string) {
+    e.preventDefault();
+    setError("");
+    setEditSaving(true);
+    const res = await fetch(`/api/trials/${trialId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim(),
+        primaryContact: editForm.primaryContact,
+        primaryContactType: editForm.primaryContactType,
+        secondaryContact: editForm.secondaryContact,
+        secondaryContactType: editForm.secondaryContactType || null,
+        school: editForm.school,
+        parentName: editForm.parentName,
+        trialDate: editForm.trialDate || null,
+        classId: editForm.classId || null,
+        notes: editForm.notes,
+      }),
+    });
+    setEditSaving(false);
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not save changes.");
+      return;
+    }
+    setEditingId(null);
+    await mutateTrials();
+    setSuccess("Trial updated.");
   }
 
   async function declineTrial(id: string, name: string) {
@@ -192,7 +242,7 @@ export default function TrialsManager() {
       setError(data.error ?? "Could not remove trial.");
       return;
     }
-    await load();
+    await mutateTrials();
     setSuccess(`${name} marked as did not enroll.`);
   }
 
@@ -220,12 +270,20 @@ export default function TrialsManager() {
           </button>
         </div>
         {showForm && <form onSubmit={onRegister} className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-zinc-700">Name *</span>
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">First name *</span>
             <input
               required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              value={form.firstName}
+              onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">Last name</span>
+            <input
+              value={form.lastName}
+              onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
             />
           </label>
@@ -336,12 +394,12 @@ export default function TrialsManager() {
           )}
         </p>
       )}
-      {error && (
+      {(loadError || error) && (
         <p
           className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"
           role="alert"
         >
-          {error}
+          {loadError?.message ?? error}
         </p>
       )}
 
@@ -368,7 +426,7 @@ export default function TrialsManager() {
           </div>
         </div>
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <SkeletonList count={5} />
         ) : view === "converted" ? (
           <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
             <table className="min-w-full text-sm">
@@ -473,7 +531,7 @@ export default function TrialsManager() {
                         : ""}
                     </p>
                   </div>
-                  {t.status === "active" && convertingId !== t.id && (
+                  {t.status === "active" && convertingId !== t.id && editingId !== t.id && (
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -481,6 +539,13 @@ export default function TrialsManager() {
                         className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-700"
                       >
                         Convert to student
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(t)}
+                        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
+                      >
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -492,6 +557,115 @@ export default function TrialsManager() {
                     </div>
                   )}
                 </div>
+                {editingId === t.id && (
+                  <form
+                    onSubmit={(e) => submitEdit(e, t.id)}
+                    className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3"
+                  >
+                    <p className="text-sm font-medium text-zinc-800">Edit trial</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">First name *</span>
+                        <input
+                          required
+                          value={editForm.firstName}
+                          onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">Last name</span>
+                        <input
+                          value={editForm.lastName}
+                          onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                      <ContactFields
+                        prefix="Primary"
+                        typeLabel="Primary contact"
+                        typeValue={editForm.primaryContactType}
+                        numberValue={editForm.primaryContact}
+                        onTypeChange={(v) => setEditForm((f) => ({ ...f, primaryContactType: (v || "parent") as ContactType }))}
+                        onNumberChange={(v) => setEditForm((f) => ({ ...f, primaryContact: v }))}
+                        required
+                      />
+                      <ContactFields
+                        prefix="Secondary"
+                        typeLabel="Secondary contact"
+                        typeValue={editForm.secondaryContactType}
+                        numberValue={editForm.secondaryContact}
+                        onTypeChange={(v) => setEditForm((f) => ({ ...f, secondaryContactType: v }))}
+                        onNumberChange={(v) => setEditForm((f) => ({ ...f, secondaryContact: v }))}
+                      />
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">School</span>
+                        <input
+                          value={editForm.school}
+                          onChange={(e) => setEditForm((f) => ({ ...f, school: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">Parent name</span>
+                        <input
+                          value={editForm.parentName}
+                          onChange={(e) => setEditForm((f) => ({ ...f, parentName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">Trial date</span>
+                        <input
+                          type="date"
+                          value={editForm.trialDate}
+                          onChange={(e) => setEditForm((f) => ({ ...f, trialDate: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="text-zinc-700">Class</span>
+                        <select
+                          value={editForm.classId}
+                          onChange={(e) => setEditForm((f) => ({ ...f, classId: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        >
+                          <option value="">— Select class —</option>
+                          {classes.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {formatClassDropdownLabel(c)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-sm sm:col-span-2">
+                        <span className="text-zinc-700">Notes</span>
+                        <textarea
+                          value={editForm.notes}
+                          onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                          rows={2}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={editSaving}
+                        className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
+                      >
+                        {editSaving ? "Saving…" : "Save changes"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="text-sm text-zinc-500 hover:text-zinc-800"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
                 {convertingId === t.id && (
                   <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50/50 p-3">
                     <p className="text-sm font-medium text-zinc-800">

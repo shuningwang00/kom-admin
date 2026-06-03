@@ -1,4 +1,5 @@
 import { assertCanManageStudents } from "@/lib/auth/access";
+import { invalidateEnrollmentCache } from "@/lib/attendance/list-sessions";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { validatePauseDates } from "@/lib/enrollments/pause";
 import { getDb } from "@/lib/db/index";
@@ -104,6 +105,7 @@ export async function PATCH(request: Request, { params }: Params) {
       }
     }
 
+    invalidateEnrollmentCache();
     return jsonOk({ enrollment: updated, deletedAttendanceCount });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";

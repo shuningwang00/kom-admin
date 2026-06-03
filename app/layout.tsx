@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
+import SWRProvider from "@/components/swr-provider";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -22,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${outfit.variable} h-full`}>
       <body className="flex min-h-full flex-col bg-zinc-100 font-sans text-zinc-900 antialiased">
-        {children}
+        <SWRProvider>{children}</SWRProvider>
       </body>
     </html>
   );

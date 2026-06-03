@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
-import { isOwner, requireEffectiveUser } from "@/lib/auth/access";
+import { isOwner, isOwnerOrAdmin, requireEffectiveUser } from "@/lib/auth/access";
 import { uploadReceiptToDrive } from "@/lib/google/drive";
 import { createClaim, listClaimsForMonth } from "@/lib/people/claims";
 
@@ -14,10 +14,10 @@ export async function GET(request: Request) {
       return jsonError("Query ?month=YYYY-MM required.");
     }
     const status = params.get("status")?.trim() || undefined;
-    const ownerView = isOwner(user);
-    const filterEmail = ownerView ? undefined : user.email;
+    const elevated = await isOwnerOrAdmin(user);
+    const filterEmail = elevated ? undefined : user.email;
     const claims = await listClaimsForMonth(month, { email: filterEmail, status });
-    return jsonOk({ claims, isOwner: ownerView });
+    return jsonOk({ claims, isOwner: elevated });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load claims";
     return jsonError(msg, 500);
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await requireEffectiveUser();
-    const ownerView = isOwner(user);
+    const elevated = await isOwnerOrAdmin(user);
 
     const contentType = request.headers.get("content-type") ?? "";
     let body: {
@@ -74,9 +74,8 @@ export async function POST(request: Request) {
       return jsonError("amount must be a positive number.");
     }
 
-    // Non-owners can only submit for themselves
-    const targetEmail = ownerView && body.staffEmail ? body.staffEmail : user.email;
-    const targetName = ownerView && body.staffName ? body.staffName : (user.displayName || user.email);
+    const targetEmail = elevated && body.staffEmail ? body.staffEmail : user.email;
+    const targetName = elevated && body.staffName ? body.staffName : (user.displayName || user.email);
 
     let receiptFileId: string | undefined;
     let receiptFileName: string | undefined;
@@ -101,7 +100,10 @@ export async function POST(request: Request) {
 
     return jsonOk({ claim }, 201);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to create claim";
+    const raw = err instanceof Error ? err.message : "Failed to create claim";
+    const msg = raw.includes("invalid_grant")
+      ? "Google Drive is not connected or the token has expired. Go to the Billing page and click 'Connect Google' to re-authorize."
+      : raw;
     return jsonError(msg, 500);
   }
 }
