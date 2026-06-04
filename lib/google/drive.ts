@@ -2,6 +2,8 @@ import { google } from "googleapis";
 import { getServerGoogleAuthClient } from "@/lib/google/auth";
 
 const CLAIMS_FOLDER_NAME = "Claims";
+const INVOICES_FOLDER_NAME = "Invoices";
+const RECEIPTS_FOLDER_NAME = "Receipts";
 
 async function getDriveClient() {
   const auth = await getServerGoogleAuthClient();
@@ -75,6 +77,57 @@ export async function uploadReceiptToDrive(
 
   if (!res.data.id) throw new Error("Drive upload failed: no file ID returned");
   return { fileId: res.data.id, fileName: res.data.name ?? originalName };
+}
+
+async function uploadPdfToDrive(
+  buffer: Buffer,
+  fileName: string,
+  month: string,
+  rootEnvVar: string,
+  rootFolderName: string,
+): Promise<{ fileId: string; fileName: string }> {
+  const drive = await getDriveClient();
+  const rootId = process.env[rootEnvVar]?.trim();
+  const parentId = rootId
+    ? await findOrCreateFolder(drive, month, rootId)
+    : await findOrCreateFolder(drive, month, await findOrCreateFolder(drive, rootFolderName));
+
+  const { Readable } = await import("stream");
+  const res = await drive.files.create({
+    requestBody: { name: fileName, parents: [parentId] },
+    media: { mimeType: "application/pdf", body: Readable.from(buffer) },
+    fields: "id,name",
+  });
+  if (!res.data.id) throw new Error("Drive upload failed: no file ID returned");
+
+  // Make the file viewable by anyone with the link (file-level only, folder unaffected)
+  try {
+    await drive.permissions.create({
+      fileId: res.data.id,
+      requestBody: { role: "reader", type: "anyone" },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`PDF uploaded but could not set sharing permission: ${msg}`);
+  }
+
+  return { fileId: res.data.id, fileName: res.data.name ?? fileName };
+}
+
+export async function uploadInvoicePdfToDrive(
+  buffer: Buffer,
+  fileName: string,
+  month: string,
+): Promise<{ fileId: string; fileName: string }> {
+  return uploadPdfToDrive(buffer, fileName, month, "GOOGLE_DRIVE_INVOICES_FOLDER_ID", INVOICES_FOLDER_NAME);
+}
+
+export async function uploadBillingReceiptToDrive(
+  buffer: Buffer,
+  fileName: string,
+  month: string,
+): Promise<{ fileId: string; fileName: string }> {
+  return uploadPdfToDrive(buffer, fileName, month, "GOOGLE_DRIVE_RECEIPTS_FOLDER_ID", RECEIPTS_FOLDER_NAME);
 }
 
 export async function deleteFileFromDrive(fileId: string): Promise<void> {

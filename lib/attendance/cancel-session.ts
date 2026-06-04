@@ -4,6 +4,7 @@ import type { SessionHeadcountResult } from "@/lib/attendance/session-headcount"
 import type { SessionExpectedCounts } from "@/lib/attendance/session-expected-labels";
 import type { AttendanceStatus } from "@/lib/attendance/status";
 import type { SessionUser } from "@/lib/auth/config";
+import { handleCancelledSessionBilling, reverseSessionCredits } from "@/lib/billing/invoice-db";
 import { getDb } from "@/lib/db/index";
 import {
   attendanceRecords,
@@ -154,6 +155,11 @@ export async function cancelClassSession(params: {
     after: { status: "cancelled", rescheduleNote, rosterCount: roster.length },
   });
 
+  await handleCancelledSessionBilling(
+    params.sessionId,
+    roster.map((r) => r.studentId),
+  );
+
   return { rosterCount: roster.length, makeupNote };
 }
 
@@ -226,6 +232,7 @@ export async function restoreClassSession(params: {
     after: { status: "scheduled" },
   });
 
+  await reverseSessionCredits(params.sessionId);
 }
 
 export function assertSessionNotCancelled(status: string): void {

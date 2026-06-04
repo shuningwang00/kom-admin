@@ -109,6 +109,8 @@ type SessionDetail = {
     timeLabel: string;
     status: "scheduled" | "cancelled";
     rescheduleNote: string;
+    originalDate?: string | null;
+    canDelete?: boolean;
     reliefTutor: string;
     expected?: SessionExpectedCounts;
   };
@@ -153,11 +155,13 @@ export default function SessionAttendancePanel({
   const [cancelError, setCancelError] = useState("");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [addableStudents, setAddableStudents] = useState<AddableStudent[]>([]);
   const [addableLevelLabel, setAddableLevelLabel] = useState("");
   const [addStudentId, setAddStudentId] = useState("");
   const [editingMakeupStudentId, setEditingMakeupStudentId] = useState("");
   const [makeupReliefTutor, setMakeupReliefTutor] = useState("");
+  const [sessionOnDate, setSessionOnDate] = useState<{ timeLabel: string; rescheduleNote: string; status: string } | null>(null);
   const [editingStudentIds, setEditingStudentIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -379,6 +383,25 @@ export default function SessionAttendancePanel({
     };
   }, [sessionId, detail?.class.id]);
 
+  // When the makeup date or class changes, look up if a session already exists on that date.
+  // If so, pre-fill the time with the session's actual time (handles rescheduled sessions).
+  const makeupClassId = makeupChoice === MAKEUP_CUSTOM_VALUE
+    ? makeupSourceClass?.classId ?? ""
+    : makeupChoice;
+  useEffect(() => {
+    if (!makeupClassId || !makeupDate) { setSessionOnDate(null); return; }
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/sessions/lookup?classId=${encodeURIComponent(makeupClassId)}&date=${encodeURIComponent(makeupDate)}`);
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as { session: { timeLabel: string; rescheduleNote: string; status: string } | null };
+      if (cancelled) return;
+      setSessionOnDate(data.session);
+      if (data.session?.timeLabel) setMakeupTime(data.session.timeLabel);
+    })();
+    return () => { cancelled = true; };
+  }, [makeupClassId, makeupDate]);
+
   function statusesForRow(row: StudentRow): AttendanceStatus[] {
     if (row.isMakeupVisitor || row.isWalkIn) {
       return MAKEUP_VISITOR_MARKING_STATUSES;
@@ -521,6 +544,25 @@ export default function SessionAttendancePanel({
     }
     if (editingMakeupStudentId === studentId) resetMakeupForm();
     await load();
+  }
+
+  async function clearAttendance(studentId: string) {
+    setSaving(true);
+    setError("");
+    const res = await fetch(
+      `/api/sessions/${sessionId}/attendance?studentId=${encodeURIComponent(studentId)}`,
+      { method: "DELETE" },
+    );
+    setSaving(false);
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string };
+      setError(data.error ?? "Clear failed");
+      return;
+    }
+    const data = (await res.json()) as SessionDetail;
+    setDetail({ ...data, trialLeads: data.trialLeads ?? [], scheduledMakeups: data.scheduledMakeups ?? [] });
+    setEditingStudentIds((prev) => { const next = new Set(prev); next.delete(studentId); return next; });
+    setDraft((d) => { const { [studentId]: _removed, ...rest } = d; return rest; });
   }
 
   async function scheduleMakeup(e: React.FormEvent) {
@@ -679,6 +721,20 @@ export default function SessionAttendancePanel({
     await load();
   }
 
+  async function deleteSession() {
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+    setSaving(false);
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not delete session.");
+      setShowDeleteConfirm(false);
+      return;
+    }
+    router.back();
+  }
+
   async function saveReliefTutor(reliefTutor: string) {
     const res = await fetch(`/api/sessions/${sessionId}/relief-tutor`, {
       method: "PATCH",
@@ -721,6 +777,11 @@ export default function SessionAttendancePanel({
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
               {isCancelledSession ? "Cancelled" : "Rescheduled"}
             </span>
+            {detail.session.originalDate && detail.session.rescheduleNote !== "Makeup session" && (
+              <span className="opacity-70">
+                was {new Date(detail.session.originalDate + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" })} ·{" "}
+              </span>
+            )}
             {detail.session.rescheduleNote}
           </p>
         )}
@@ -1143,14 +1204,26 @@ export default function SessionAttendancePanel({
                             })}
                           </div>
                           {isSaved && isExpanded && (
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => cancelEditStudent(row)}
-                              className="mt-2 text-xs font-medium text-zinc-600 hover:text-zinc-900"
-                            >
-                              Cancel
-                            </button>
+                            <div className="mt-2 flex items-center gap-3">
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => cancelEditStudent(row)}
+                                className="text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                              >
+                                Cancel
+                              </button>
+                              {!row.isMakeupVisitor && row.status !== "makeup_scheduled" && (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => clearAttendance(row.student.id)}
+                                  className="text-xs font-medium text-red-500 hover:text-red-700"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
@@ -1336,6 +1409,15 @@ export default function SessionAttendancePanel({
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                 required
               />
+              {sessionOnDate && (
+                <p className={`mt-1 text-xs ${sessionOnDate.status === "cancelled" ? "text-red-600" : "text-amber-700"}`}>
+                  {sessionOnDate.status === "cancelled"
+                    ? "Cancelled session exists · time pre-filled"
+                    : sessionOnDate.rescheduleNote
+                    ? "↺ Rescheduled session exists · time pre-filled"
+                    : "Session exists · time pre-filled"}
+                </p>
+              )}
             </label>
             <label className="block text-sm">
               <span className="font-medium text-zinc-700">Time</span>
@@ -1516,6 +1598,23 @@ export default function SessionAttendancePanel({
         )}
       </section>
 
+      {detail.session.canDelete && (
+        <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-700">Delete session</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Permanently removes this session from the calendar as if it was never generated. Only available when no attendance has been saved.
+          </p>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => setShowDeleteConfirm(true)}
+            className="mt-3 text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
+          >
+            Delete this session permanently
+          </button>
+        </section>
+      )}
+
       <ConfirmDialog
         open={showCancelConfirm}
         title="Cancel this class?"
@@ -1547,6 +1646,16 @@ export default function SessionAttendancePanel({
         message="Put this class back on the schedule and clear Needs M/U marks that were set automatically when the class was cancelled."
         onConfirm={() => void cancelOrRestoreSession(true)}
         onCancel={() => setShowRestoreConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete this session?"
+        destructive
+        confirmLabel="Delete session"
+        message="This will permanently remove the session from the calendar. It cannot be undone."
+        onConfirm={() => void deleteSession()}
+        onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>
   );

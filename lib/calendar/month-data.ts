@@ -11,6 +11,10 @@ import {
   sessionActiveExpectedTotal,
   sessionShowsReliefTutorNeeded,
 } from "@/lib/attendance/relief-tutor-session";
+import {
+  pickCanonicalSessionRow,
+  sessionSlotConsolidationKey,
+} from "@/lib/attendance/session-slot-matching";
 import { sessionTutorDisplay } from "@/lib/tutors/display";
 import { formatCalendarDate, parseYearMonth } from "@/lib/dates/calendar";
 import { getDb } from "@/lib/db/index";
@@ -18,6 +22,7 @@ import {
   calendarEvents,
   classSessions,
   classes,
+  holidayProgrammeAttendance,
   holidayProgrammes,
   holidayProgrammeParticipants,
   holidayProgrammeSessions,
@@ -52,6 +57,8 @@ export type CalendarSessionItem = {
   sessionStatus: "scheduled" | "cancelled";
   reliefTutor: string;
   rescheduleNote: string;
+  /** First date before any reschedule; null if never rescheduled. */
+  originalDate: string | null;
 };
 
 export type CalendarAdminShift = {
@@ -214,8 +221,31 @@ export async function loadCalendarMonth(
 
   const tutorScope = opts?.tutorMatch?.trim() ?? "";
 
-  const byDate = new Map<string, CalendarSessionItem[]>();
+  // Consolidate sessions that share the same slot (same level/subject/time/tutor on the same date).
+  // This handles custom makeups for students from different peer classes showing up as one calendar entry.
+  type ExpectedRow = (typeof withExpected)[number];
+  const slotGroups = new Map<string, ExpectedRow[]>();
   for (const row of withExpected) {
+    const key = sessionSlotConsolidationKey(row);
+    const list = slotGroups.get(key) ?? [];
+    list.push(row);
+    slotGroups.set(key, list);
+  }
+  const consolidatedRows: Array<ExpectedRow & { bonusExpected: number }> = [];
+  for (const group of slotGroups.values()) {
+    if (group.length === 1) {
+      consolidatedRows.push({ ...group[0], bonusExpected: 0 });
+      continue;
+    }
+    const primary = pickCanonicalSessionRow(group) as ExpectedRow;
+    const bonusExpected = group
+      .filter((r) => r.session.id !== primary.session.id)
+      .reduce((sum, r) => sum + sessionActiveExpectedTotal(r.expected), 0);
+    consolidatedRows.push({ ...primary, bonusExpected });
+  }
+
+  const byDate = new Map<string, CalendarSessionItem[]>();
+  for (const row of consolidatedRows) {
     const date = row.session.scheduledDate;
     if (!byDate.has(date)) byDate.set(date, []);
 
@@ -234,7 +264,7 @@ export async function loadCalendarMonth(
     const reliefRaw = row.session.reliefTutor ?? "";
     const needsRelief = sessionShowsReliefTutorNeeded(reliefRaw, row.expected);
     const reliefCover = hasAssignedReliefTutor(reliefRaw);
-    const expectedCount = sessionActiveExpectedTotal(row.expected);
+    const expectedCount = sessionActiveExpectedTotal(row.expected) + row.bonusExpected;
     const hasStudentsExpected = expectedCount > 0;
 
     const hasTrial = row.expected.trial > 0;
@@ -286,20 +316,42 @@ export async function loadCalendarMonth(
       sessionStatus,
       reliefTutor: row.session.reliefTutor,
       rescheduleNote: row.session.rescheduleNote,
+      originalDate: row.session.originalDate ?? null,
     });
   }
 
   const holByDate = new Map<string, CalendarHolSessionItem[]>();
   if (holSessionRows.length > 0) {
     const holProgrammeIds = [...new Set(holSessionRows.map((r) => r.session.programmeId))];
-    const participantTypeRows = await db
-      .select({
-        programmeId: holidayProgrammeParticipants.programmeId,
-        studentId: holidayProgrammeParticipants.studentId,
-      })
-      .from(holidayProgrammeParticipants)
-      .where(inArray(holidayProgrammeParticipants.programmeId, holProgrammeIds));
+    const holSessionIds = holSessionRows.map((r) => r.session.id);
 
+    const [participantTypeRows, waivedRows] = await Promise.all([
+      db
+        .select({
+          id: holidayProgrammeParticipants.id,
+          programmeId: holidayProgrammeParticipants.programmeId,
+          studentId: holidayProgrammeParticipants.studentId,
+        })
+        .from(holidayProgrammeParticipants)
+        .where(inArray(holidayProgrammeParticipants.programmeId, holProgrammeIds)),
+      db
+        .select({
+          sessionId: holidayProgrammeAttendance.sessionId,
+          participantId: holidayProgrammeAttendance.participantId,
+        })
+        .from(holidayProgrammeAttendance)
+        .where(
+          and(
+            inArray(holidayProgrammeAttendance.sessionId, holSessionIds),
+            eq(holidayProgrammeAttendance.status, "waive"),
+          ),
+        ),
+    ]);
+
+    // Map participantId → isExisting (has studentId)
+    const participantIsExisting = new Map(participantTypeRows.map((p) => [p.id, p.studentId !== null]));
+
+    // Per-programme totals (unwaived base)
     const typeByProgramme = new Map<string, { newCount: number; existingCount: number }>();
     for (const p of participantTypeRows) {
       if (!typeByProgramme.has(p.programmeId))
@@ -309,10 +361,21 @@ export async function loadCalendarMonth(
       else counts.newCount++;
     }
 
+    // Per-session waived counts
+    const waivedBySession = new Map<string, { newWaived: number; existingWaived: number }>();
+    for (const w of waivedRows) {
+      if (!waivedBySession.has(w.sessionId))
+        waivedBySession.set(w.sessionId, { newWaived: 0, existingWaived: 0 });
+      const wc = waivedBySession.get(w.sessionId)!;
+      if (participantIsExisting.get(w.participantId)) wc.existingWaived++;
+      else wc.newWaived++;
+    }
+
     for (const row of holSessionRows) {
       const date = row.session.scheduledDate;
       if (!holByDate.has(date)) holByDate.set(date, []);
-      const { newCount, existingCount } = typeByProgramme.get(row.session.programmeId) ?? { newCount: 0, existingCount: 0 };
+      const base = typeByProgramme.get(row.session.programmeId) ?? { newCount: 0, existingCount: 0 };
+      const waived = waivedBySession.get(row.session.id) ?? { newWaived: 0, existingWaived: 0 };
       holByDate.get(date)!.push({
         sessionId: row.session.id,
         programmeId: row.session.programmeId,
@@ -320,8 +383,8 @@ export async function loadCalendarMonth(
         tutorName: row.session.tutorName,
         timeLabel: row.session.timeLabel,
         scheduledDate: date,
-        newCount,
-        existingCount,
+        newCount: Math.max(0, base.newCount - waived.newWaived),
+        existingCount: Math.max(0, base.existingCount - waived.existingWaived),
       });
     }
   }

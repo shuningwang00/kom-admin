@@ -2,6 +2,7 @@ import {
   isSessionAttendanceSaved,
   pickConsolidatedAttendanceRecord,
 } from "@/lib/attendance/attendance-saved";
+import { isSystemAttendanceActor } from "@/lib/attendance/status";
 import { isAutomaticAttendanceRepairEnabled } from "@/lib/attendance/data-preservation";
 import { formatMakeupNoteForMuLessonDay } from "@/lib/attendance/makeup-display";
 import { findMissedSessionForMakeupTarget } from "@/lib/attendance/makeup";
@@ -354,7 +355,11 @@ export function toSessionDetailResponse(
         class: detail.class,
       }),
       rescheduleNote: detail.session.rescheduleNote,
+      originalDate: detail.session.originalDate,
       status: detail.session.status,
+      canDelete: !detail.students.some(
+        (row) => row.record != null && !isSystemAttendanceActor(row.record.updatedBy),
+      ),
       reliefTutor: detail.session.reliefTutor,
       expected: detail.expected,
     },

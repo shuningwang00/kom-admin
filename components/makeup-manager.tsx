@@ -93,6 +93,7 @@ export default function MakeupManager() {
   const [editingStudentId, setEditingStudentId] = useState("");
   const [activeFormKey, setActiveFormKey] = useState("");
   const [makeupReliefTutor, setMakeupReliefTutor] = useState("");
+  const [sessionOnDate, setSessionOnDate] = useState<{ timeLabel: string; rescheduleNote: string; status: string } | null>(null);
   const skipMakeupClassDefaultsRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -121,6 +122,23 @@ export default function MakeupManager() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const makeupClassId = makeupChoice === MAKEUP_CUSTOM_VALUE
+    ? sourceClass?.classId ?? ""
+    : makeupChoice;
+  useEffect(() => {
+    if (!makeupClassId || !makeupDate) { setSessionOnDate(null); return; }
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/sessions/lookup?classId=${encodeURIComponent(makeupClassId)}&date=${encodeURIComponent(makeupDate)}`);
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as { session: { timeLabel: string; rescheduleNote: string; status: string } | null };
+      if (cancelled) return;
+      setSessionOnDate(data.session);
+      if (data.session?.timeLabel) setMakeupTime(data.session.timeLabel);
+    })();
+    return () => { cancelled = true; };
+  }, [makeupClassId, makeupDate]);
 
   const scheduledUpcoming = useMemo(
     () =>
@@ -484,6 +502,15 @@ export default function MakeupManager() {
               className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
               required
             />
+            {sessionOnDate && (
+              <p className={`mt-1 text-xs ${sessionOnDate.status === "cancelled" ? "text-red-600" : "text-amber-700"}`}>
+                {sessionOnDate.status === "cancelled"
+                  ? "Cancelled session exists · time pre-filled"
+                  : sessionOnDate.rescheduleNote
+                  ? "↺ Rescheduled session exists · time pre-filled"
+                  : "Session exists · time pre-filled"}
+              </p>
+            )}
           </label>
           <label className="block text-sm">
             <span className="font-medium text-zinc-700">Time</span>

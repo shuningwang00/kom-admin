@@ -93,6 +93,13 @@ export async function listProgrammeParticipants(
     .select({
       participant: holidayProgrammeParticipants,
       studentName: students.name,
+      studentSchool: students.school,
+      studentPrimaryContact: students.primaryContact,
+      studentPrimaryContactType: students.primaryContactType,
+      studentSecondaryContact: students.secondaryContact,
+      studentSecondaryContactType: students.secondaryContactType,
+      studentParentName: students.parentName,
+      studentNotes: students.notes,
     })
     .from(holidayProgrammeParticipants)
     .leftJoin(
@@ -102,10 +109,21 @@ export async function listProgrammeParticipants(
     .where(eq(holidayProgrammeParticipants.programmeId, programmeId))
     .orderBy(asc(holidayProgrammeParticipants.createdAt));
 
-  return rows.map(({ participant, studentName }) => ({
-    ...participant,
-    studentName,
-  }));
+  return rows.map((row) => {
+    const { participant, studentName, studentSchool, studentPrimaryContact, studentPrimaryContactType, studentSecondaryContact, studentSecondaryContactType, studentParentName, studentNotes } = row;
+    const isExisting = !!participant.studentId;
+    return {
+      ...participant,
+      studentName,
+      school: isExisting ? (studentSchool ?? participant.school) : participant.school,
+      primaryContact: isExisting ? (studentPrimaryContact ?? participant.primaryContact) : participant.primaryContact,
+      primaryContactType: isExisting ? (studentPrimaryContactType ?? participant.primaryContactType) : participant.primaryContactType,
+      secondaryContact: isExisting ? (studentSecondaryContact ?? participant.secondaryContact) : participant.secondaryContact,
+      secondaryContactType: isExisting ? (studentSecondaryContactType ?? participant.secondaryContactType) : participant.secondaryContactType,
+      parentName: isExisting ? (studentParentName ?? participant.parentName) : participant.parentName,
+      notes: isExisting ? (studentNotes ?? participant.notes) : participant.notes,
+    };
+  });
 }
 
 export async function listHolSessionsForDate(date: string) {

@@ -1555,11 +1555,24 @@ export async function cancelScheduledMakeup(params: {
     .delete(attendanceRecords)
     .where(eq(attendanceRecords.id, target.record.id));
 
+  // If this was a custom makeup session ("Makeup session"), delete the session
+  // row once no attendance records remain so it doesn't linger in the calendar.
+  if (target.session.rescheduleNote === "Makeup session") {
+    const remaining = await db
+      .select({ id: attendanceRecords.id })
+      .from(attendanceRecords)
+      .where(eq(attendanceRecords.sessionId, target.session.id))
+      .limit(1);
+    if (remaining.length === 0) {
+      await db.delete(classSessions).where(eq(classSessions.id, target.session.id));
+    }
+  }
+
   if (sourceRecord) {
     await db
       .update(attendanceRecords)
       .set({
-        status: "absent_pending",
+        status: "absent_notified",
         makeupNote: "",
         updatedBy: params.actor.email,
         updatedAt: new Date(),
@@ -1602,6 +1615,17 @@ export async function updateScheduledMakeup(params: {
   await db
     .delete(attendanceRecords)
     .where(eq(attendanceRecords.id, booking.target.record.id));
+
+  if (booking.target.session.rescheduleNote === "Makeup session") {
+    const remaining = await db
+      .select({ id: attendanceRecords.id })
+      .from(attendanceRecords)
+      .where(eq(attendanceRecords.sessionId, booking.target.session.id))
+      .limit(1);
+    if (remaining.length === 0) {
+      await db.delete(classSessions).where(eq(classSessions.id, booking.target.session.id));
+    }
+  }
 
   return scheduleMakeup({
     actor: params.actor,

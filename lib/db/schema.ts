@@ -108,6 +108,7 @@ export const classes = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     label: text("label").notNull(),
+    subject: text("subject").notNull().default(""),
     level: text("level").notNull().default(""),
     time: text("time").notNull().default(""),
     tutor: text("tutor").notNull().default(""),
@@ -116,6 +117,7 @@ export const classes = pgTable(
     isFull: boolean("is_full").notNull().default(false),
     feePerLesson: text("fee_per_lesson").notNull().default(""),
     description: text("description").notNull().default(""),
+    classroom: text("classroom").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -248,6 +250,8 @@ export const classSessions = pgTable(
     timeLabel: text("time_label").notNull().default(""),
     status: classSessionStatusEnum("status").notNull().default("scheduled"),
     rescheduleNote: text("reschedule_note").notNull().default(""),
+    /** Original scheduled date before the first reschedule; null if never rescheduled. */
+    originalDate: date("original_date"),
     /** When set, this tutor covers the session instead of class.tutor */
     reliefTutor: text("relief_tutor").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -587,6 +591,7 @@ export const calendarEvents = pgTable(
 // ─── Billing ──────────────────────────────────────────────────────────────────
 
 export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "draft",
   "sent",
   "partial",
   "paid",
@@ -666,7 +671,6 @@ export const invoices = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("invoices_student_month_uidx").on(t.studentId, t.billingMonth),
     index("invoices_student_idx").on(t.studentId),
     index("invoices_month_idx").on(t.billingMonth),
     index("invoices_status_idx").on(t.status),
@@ -687,6 +691,9 @@ export const invoiceLineItems = pgTable(
       () => attendanceRecords.id,
       { onDelete: "set null" },
     ),
+    /** Stable FK to the session row — survives reschedules; used to detect double-billing. */
+    sessionId: uuid("session_id").references(() => classSessions.id, { onDelete: "set null" }),
+    studentId: uuid("student_id").references(() => students.id, { onDelete: "set null" }),
     classId: uuid("class_id").references(() => classes.id, { onDelete: "set null" }),
     /** Denormalised class label (e.g. "Sec 2 Maths") for PDF grouping. */
     classLabel: text("class_label").notNull().default(""),
@@ -703,6 +710,8 @@ export const invoiceLineItems = pgTable(
   (t) => [
     index("ili_invoice_idx").on(t.invoiceId),
     index("ili_attendance_idx").on(t.attendanceRecordId),
+    index("ili_session_idx").on(t.sessionId),
+    index("ili_student_idx").on(t.studentId),
   ],
 );
 
@@ -723,6 +732,25 @@ export const invoicePayments = pgTable(
   (t) => [index("ip_invoice_idx").on(t.invoiceId)],
 );
 
+/** Junction table: all students covered by a given invoice (enforces 1 invoice per student per month). */
+export const invoiceStudents = pgTable(
+  "invoice_students",
+  {
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "restrict" }),
+    billingMonth: text("billing_month").notNull(),
+  },
+  (t) => [
+    index("is_invoice_idx").on(t.invoiceId),
+    // One invoice per student per month — primary uniqueness constraint
+    uniqueIndex("is_student_month_uidx").on(t.studentId, t.billingMonth),
+  ],
+);
+
 /** Unapplied credits — created on overpayment or when a waived session was on a paid invoice. */
 export const pendingCredits = pgTable(
   "pending_credits",
@@ -736,6 +764,10 @@ export const pendingCredits = pgTable(
     sourceInvoiceId: uuid("source_invoice_id").references(() => invoices.id, {
       onDelete: "set null",
     }),
+    /** Set when this credit was created by cancelling or waiving a specific session. Used to reverse the credit if the session is later restored. */
+    sourceSessionId: uuid("source_session_id").references(() => classSessions.id, {
+      onDelete: "set null",
+    }),
     appliedToInvoiceId: uuid("applied_to_invoice_id").references(
       () => invoices.id,
       { onDelete: "set null" },
@@ -746,5 +778,6 @@ export const pendingCredits = pgTable(
   (t) => [
     index("pc_student_idx").on(t.studentId),
     index("pc_applied_idx").on(t.appliedAt),
+    index("pc_source_session_idx").on(t.sourceSessionId),
   ],
 );

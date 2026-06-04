@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { listStandardTimeSlots, normalizeTimeLabel } from "@/lib/scheduling/time-slots";
 
 type Klass = {
   id: string;
   label: string;
+  subject: string;
   level: string;
   time: string;
   tutor: string;
@@ -13,6 +15,7 @@ type Klass = {
   isFull: boolean;
   feePerLesson: string;
   description: string;
+  classroom: string;
 };
 
 type ViewMode = "grid" | "list";
@@ -127,7 +130,7 @@ function filterAndSort(all: Klass[], level: LevelFilter, weekendsOnly: boolean, 
 }
 
 type FormState = {
-  label: string;
+  subject: string;
   level: string;
   weekday: string;
   time: string;
@@ -135,18 +138,20 @@ type FormState = {
   feePerLesson: string;
   description: string;
   isFull: boolean;
+  classroom: string;
 };
 
 const EMPTY_FORM: FormState = {
-  label: "", level: "", weekday: "monday", time: "", tutor: "",
-  feePerLesson: "", description: "", isFull: false,
+  subject: "", level: "", weekday: "monday", time: "", tutor: "",
+  feePerLesson: "", description: "", isFull: false, classroom: "",
 };
 
 function klassToForm(c: Klass): FormState {
   return {
-    label: c.label, level: c.level, weekday: c.weekday,
-    time: c.time, tutor: c.tutor, feePerLesson: c.feePerLesson,
-    description: c.description, isFull: c.isFull,
+    subject: c.subject, level: c.level, weekday: c.weekday,
+    time: normalizeTimeLabel(c.time) ?? c.time,
+    tutor: c.tutor, feePerLesson: c.feePerLesson,
+    description: c.description, isFull: c.isFull, classroom: c.classroom,
   };
 }
 
@@ -176,83 +181,80 @@ function LevelBadge({ level }: { level: string }) {
   );
 }
 
+const CLASSROOM_OPTIONS = [
+  { value: "", label: "—" },
+  { value: "c1", label: "C1" },
+  { value: "c2", label: "C2" },
+];
+
 function ClassCard({
   cls,
   canEdit,
   onEdit,
-  onToggleFull,
-  onDeactivate,
-  onReactivate,
+  onSetClassroom,
 }: {
   cls: Klass;
   canEdit: boolean;
   onEdit: (c: Klass) => void;
-  onToggleFull: (c: Klass) => void;
-  onDeactivate: (c: Klass) => void;
-  onReactivate: (c: Klass) => void;
+  onSetClassroom: (c: Klass, classroom: string) => void;
 }) {
-  const fee = formatFee(cls.feePerLesson);
   const inactive = !cls.isActive;
 
   return (
     <div className={`rounded-lg border px-3 py-2.5 text-sm transition-opacity ${inactive ? "border-zinc-200 bg-zinc-50 opacity-60" : "border-zinc-200 bg-white shadow-sm"}`}>
-      {/* Label row + inline action icons */}
       <div className="flex items-center gap-1">
         <span className={`flex-1 font-semibold leading-snug ${inactive ? "text-zinc-500" : "text-zinc-900"}`}>
           {cls.label}
         </span>
-        {canEdit && (
-          <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => onEdit(cls)}
-              className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-              title="Edit"
-            >
-              <PencilIcon />
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggleFull(cls)}
-              className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-              title={cls.isFull ? "Mark as open" : "Mark as full"}
-            >
-              {cls.isFull ? <OpenIcon /> : <FullIcon />}
-            </button>
-            {inactive ? (
-              <button
-                type="button"
-                onClick={() => onReactivate(cls)}
-                className="rounded p-1 text-zinc-400 hover:bg-green-100 hover:text-green-700"
-                title="Reactivate"
-              >
-                <CheckIcon />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onDeactivate(cls)}
-                className="rounded p-1 text-zinc-400 hover:bg-red-100 hover:text-red-600"
-                title="Deactivate"
-              >
-                <TrashIcon />
-              </button>
-            )}
-          </div>
-        )}
       </div>
-      {/* Secondary info */}
-      {cls.time && <p className="mt-0.5 text-xs text-zinc-500">{cls.time}</p>}
-      {cls.tutor && <p className="mt-0.5 text-xs text-zinc-500"><span className="text-zinc-400">Tutor:</span> {cls.tutor}</p>}
-      {(fee || cls.isFull || inactive) && (
+      {cls.tutor && <p className="mt-0.5 text-xs text-zinc-500">{cls.tutor}</p>}
+      {(cls.isFull || inactive) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {fee && <span className="text-xs font-medium text-zinc-700">{fee}</span>}
           {cls.isFull && (
             <span className="inline-flex rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">FULL</span>
           )}
           {inactive && (
             <span className="inline-flex rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">INACTIVE</span>
           )}
+        </div>
+      )}
+      {canEdit && (
+        <div className="mt-1.5 flex items-center gap-0.5">
+          {cls.classroom ? (
+            <button
+              type="button"
+              onClick={() => onSetClassroom(cls, "")}
+              className="inline-flex items-center gap-0.5 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-200"
+            >
+              {cls.classroom.toUpperCase()}
+              <span className="text-orange-400">×</span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => onSetClassroom(cls, "c1")}
+                className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+              >
+                C1
+              </button>
+              <button
+                type="button"
+                onClick={() => onSetClassroom(cls, "c2")}
+                className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+              >
+                C2
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => onEdit(cls)}
+            className="ml-0.5 rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+            title="Edit"
+          >
+            <PencilIcon />
+          </button>
         </div>
       )}
     </div>
@@ -264,26 +266,17 @@ function GridView({
   weekendsOnly,
   canEdit,
   onEdit,
-  onToggleFull,
-  onDeactivate,
-  onReactivate,
+  onSetClassroom,
 }: {
   classes: Klass[];
   weekendsOnly: boolean;
   canEdit: boolean;
   onEdit: (c: Klass) => void;
-  onToggleFull: (c: Klass) => void;
-  onDeactivate: (c: Klass) => void;
-  onReactivate: (c: Klass) => void;
+  onSetClassroom: (c: Klass, classroom: string) => void;
 }) {
   const visibleDays = weekendsOnly
     ? (["sat", "sun"] as DayKey[])
     : DAY_ORDER;
-
-  const slotsByDay = (day: DayKey) =>
-    classes
-      .filter((c) => DAY_MAP[c.weekday] === day)
-      .sort((a, b) => parseTime(a.time).startMinutes - parseTime(b.time).startMinutes);
 
   if (classes.length === 0) {
     return (
@@ -293,47 +286,108 @@ function GridView({
     );
   }
 
+  const allStartMins = [
+    ...new Set(
+      classes
+        .filter((c) => { const d = DAY_MAP[c.weekday]; return d && visibleDays.includes(d); })
+        .map((c) => parseTime(c.time).startMinutes)
+        .filter((m) => m > 0),
+    ),
+  ].sort((a, b) => a - b);
+
+  const timeLabelFor = (startMin: number) =>
+    classes.find((x) => parseTime(x.time).startMinutes === startMin)?.time ?? "";
+
+  const cardProps = { canEdit, onEdit, onSetClassroom };
+
   return (
-    <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-      <div className={weekendsOnly ? "min-w-[28rem]" : "min-w-[56rem]"}>
-        <div
-          className="grid border-b border-zinc-200 bg-zinc-50"
-          style={{ gridTemplateColumns: `repeat(${visibleDays.length}, minmax(0, 1fr))` }}
-        >
+    <div className="overflow-auto rounded-xl border border-zinc-200 bg-white" style={{ maxHeight: "calc(100vh - 220px)" }}>
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b-2 border-zinc-200 bg-zinc-50">
+            <th className="sticky left-0 top-0 z-10 w-14 border-r border-zinc-200 bg-zinc-50 px-2 py-2" />
+            <th className="sticky left-14 top-0 z-10 w-8 border-r border-zinc-200 bg-zinc-50 px-2 py-2" />
+            {allStartMins.map((m) => (
+              <th key={m} className="sticky top-0 z-[9] min-w-[9rem] border-r border-zinc-200 bg-zinc-50 px-2 py-2.5 text-left text-xs font-medium whitespace-nowrap text-zinc-600 last:border-r-0">
+                {timeLabelFor(m)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
           {visibleDays.map((day) => {
-            const count = slotsByDay(day).length;
+            const daySessions = classes.filter((c) => DAY_MAP[c.weekday] === day);
+            const c1 = daySessions.filter((c) => c.classroom === "c1");
+            const c2 = daySessions.filter((c) => c.classroom === "c2");
+            const unassigned = daySessions.filter((c) => !c.classroom);
+            const hasUnassigned = unassigned.length > 0;
+            const rowSpan = 2 + (hasUnassigned ? 1 : 0);
+
+            const cellFor = (pool: Klass[], m: number) =>
+              pool.filter((c) => parseTime(c.time).startMinutes === m);
+
             return (
-              <div key={day} className="border-r border-zinc-200 px-3 py-2.5 text-center last:border-r-0">
-                <p className="text-xs font-bold uppercase tracking-wide text-zinc-800">{DAY_SHORT[day]}</p>
-                <p className="mt-0.5 text-[10px] text-zinc-400">
-                  {count} {count === 1 ? "class" : "classes"}
-                </p>
-              </div>
+              <Fragment key={day}>
+                {/* C1 row */}
+                <tr className="border-b border-zinc-100">
+                  <td
+                    rowSpan={rowSpan}
+                    className="sticky left-0 z-[8] w-14 border-r border-zinc-200 bg-zinc-50 px-2 py-2 align-middle"
+                  >
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-xs font-bold text-zinc-700">{DAY_LABELS[day].slice(0, 3)}</span>
+                      <span className="text-[10px] text-zinc-400">{daySessions.length}</span>
+                    </div>
+                  </td>
+                  <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-blue-50 px-2 py-1.5 align-middle whitespace-nowrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">C1</span>
+                  </td>
+                  {allStartMins.map((m) => {
+                    const cell = cellFor(c1, m);
+                    return (
+                      <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
+                        {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
+                      </td>
+                    );
+                  })}
+                </tr>
+
+                {/* C2 row */}
+                <tr className={hasUnassigned ? "border-b border-zinc-100" : "border-b-2 border-zinc-200"}>
+                  <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-violet-50 px-2 py-1.5 align-middle whitespace-nowrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-violet-400">C2</span>
+                  </td>
+                  {allStartMins.map((m) => {
+                    const cell = cellFor(c2, m);
+                    return (
+                      <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
+                        {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
+                      </td>
+                    );
+                  })}
+                </tr>
+
+                {/* Unassigned row */}
+                {hasUnassigned && (
+                  <tr className="border-b-2 border-zinc-200">
+                    <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-zinc-50 px-2 py-1.5 align-middle whitespace-nowrap">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">—</span>
+                    </td>
+                    {allStartMins.map((m) => {
+                      const cell = cellFor(unassigned, m);
+                      return (
+                        <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
+                          {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
-        </div>
-
-        <div
-          className="grid gap-0"
-          style={{ gridTemplateColumns: `repeat(${visibleDays.length}, minmax(0, 1fr))` }}
-        >
-          {visibleDays.map((day) => (
-            <div key={day} className="border-r border-zinc-200 p-2.5 last:border-r-0 space-y-2">
-              {slotsByDay(day).map((cls) => (
-                <ClassCard
-                  key={cls.id}
-                  cls={cls}
-                  canEdit={canEdit}
-                  onEdit={onEdit}
-                  onToggleFull={onToggleFull}
-                  onDeactivate={onDeactivate}
-                  onReactivate={onReactivate}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -342,16 +396,10 @@ function ListView({
   classes,
   canEdit,
   onEdit,
-  onToggleFull,
-  onDeactivate,
-  onReactivate,
 }: {
   classes: Klass[];
   canEdit: boolean;
   onEdit: (c: Klass) => void;
-  onToggleFull: (c: Klass) => void;
-  onDeactivate: (c: Klass) => void;
-  onReactivate: (c: Klass) => void;
 }) {
   if (classes.length === 0) {
     return (
@@ -411,43 +459,14 @@ function ListView({
                   </td>
                   {canEdit && (
                     <td className="px-3 py-3">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onEdit(cls)}
-                          className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                          title="Edit"
-                        >
-                          <PencilIcon />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onToggleFull(cls)}
-                          className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                          title={cls.isFull ? "Mark as open" : "Mark as full"}
-                        >
-                          {cls.isFull ? <OpenIcon /> : <FullIcon />}
-                        </button>
-                        {cls.isActive ? (
-                          <button
-                            type="button"
-                            onClick={() => onDeactivate(cls)}
-                            className="rounded p-1 text-zinc-400 hover:bg-red-100 hover:text-red-600"
-                            title="Deactivate"
-                          >
-                            <TrashIcon />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onReactivate(cls)}
-                            className="rounded p-1 text-zinc-400 hover:bg-green-100 hover:text-green-700"
-                            title="Reactivate"
-                          >
-                            <CheckIcon />
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onEdit(cls)}
+                        className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                        title="Edit"
+                      >
+                        <PencilIcon />
+                      </button>
                     </td>
                   )}
                 </tr>
@@ -465,16 +484,41 @@ function ListView({
 
 function ClassForm({
   initial,
+  editTarget,
+  tutorOptions,
   onSave,
   onClose,
+  onDeactivate,
+  onReactivate,
+  onDelete,
   saving,
 }: {
   initial: FormState;
+  editTarget: Klass | null;
+  tutorOptions: string[];
   onSave: (form: FormState) => Promise<void>;
   onClose: () => void;
+  onDeactivate?: () => void;
+  onReactivate?: () => void;
+  onDelete?: () => void;
   saving: boolean;
 }) {
   const [form, setForm] = useState<FormState>(initial);
+
+  const timeOptions = useMemo(() => {
+    const slots = listStandardTimeSlots();
+    if (form.time && !slots.includes(form.time)) {
+      return [form.time, ...slots];
+    }
+    return slots;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const tutorSelectOptions = useMemo(() => {
+    if (form.tutor && !tutorOptions.includes(form.tutor)) {
+      return [form.tutor, ...tutorOptions];
+    }
+    return tutorOptions;
+  }, [tutorOptions, form.tutor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function set(field: keyof FormState, value: string | boolean) {
     setForm((prev) => {
@@ -496,7 +540,7 @@ function ClassForm({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
-          <h2 className="font-semibold text-zinc-900">{initial.label ? "Edit class" : "Add class"}</h2>
+          <h2 className="font-semibold text-zinc-900">{editTarget ? "Edit class" : "Add class"}</h2>
           <button type="button" onClick={onClose} className="rounded p-1 text-zinc-400 hover:text-zinc-700">
             <CloseIcon />
           </button>
@@ -509,16 +553,6 @@ function ClassForm({
           className="space-y-3 p-4"
         >
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="mb-1 block text-xs font-medium text-zinc-700">Class label *</label>
-              <input
-                required
-                value={form.label}
-                onChange={(e) => set("label", e.target.value)}
-                placeholder="e.g. Sec 2 G3 Math"
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
-              />
-            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Level</label>
               <select
@@ -530,6 +564,16 @@ function ClassForm({
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-zinc-700">Subject *</label>
+              <input
+                required
+                value={form.subject}
+                onChange={(e) => set("subject", e.target.value)}
+                placeholder="e.g. G3 Math"
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Day *</label>
@@ -546,12 +590,16 @@ function ClassForm({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Time</label>
-              <input
+              <select
                 value={form.time}
                 onChange={(e) => set("time", e.target.value)}
-                placeholder="e.g. 4:30 – 6:15pm"
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
-              />
+              >
+                <option value="">— Select time —</option>
+                {timeOptions.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Fee per lesson (S$)</label>
@@ -567,12 +615,28 @@ function ClassForm({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Tutor</label>
-              <input
+              <select
                 value={form.tutor}
                 onChange={(e) => set("tutor", e.target.value)}
-                placeholder="Tutor name"
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
-              />
+              >
+                <option value="">— Select tutor —</option>
+                {tutorSelectOptions.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-zinc-700">Classroom</label>
+              <select
+                value={form.classroom}
+                onChange={(e) => set("classroom", e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
+              >
+                <option value="">— Unassigned —</option>
+                <option value="c1">C1</option>
+                <option value="c2">C2</option>
+              </select>
             </div>
             <div className="col-span-2">
               <label className="mb-1 block text-xs font-medium text-zinc-700">Description</label>
@@ -596,22 +660,55 @@ function ClassForm({
               </label>
             </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-100 pt-3">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+          <div className="flex items-center gap-2 border-t border-zinc-100 pt-3">
+            {editTarget && (
+              <>
+                {editTarget.isActive ? (
+                  <button
+                    type="button"
+                    onClick={onDeactivate}
+                    disabled={saving}
+                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onReactivate}
+                    disabled={saving}
+                    className="rounded-lg border border-green-200 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-60"
+                  >
+                    Reactivate
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={saving}
+                  className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+            <div className="ml-auto flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -681,31 +778,26 @@ export default function ScheduleManager() {
           body: JSON.stringify(form),
         });
       }
+      const data = (await res.json()) as { class?: Klass; error?: string };
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
         setFormError(data.error ?? "Failed to save");
         setSaving(false);
         return;
       }
       setFormOpen(false);
-      await load();
+      if (data.class) {
+        if (editTarget) {
+          setAllClasses((prev) => prev.map((x) => (x.id === data.class!.id ? data.class! : x)));
+        } else {
+          setAllClasses((prev) => [...prev, data.class!]);
+        }
+      } else {
+        await load();
+      }
     } catch {
       setFormError("Network error");
     }
     setSaving(false);
-  }
-
-  async function handleToggleFull(c: Klass) {
-    const res = await fetch(`/api/classes/${c.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isFull: !c.isFull }),
-    });
-    if (res.ok) {
-      setAllClasses((prev) =>
-        prev.map((x) => (x.id === c.id ? { ...x, isFull: !c.isFull } : x))
-      );
-    }
   }
 
   async function handleDeactivate(c: Klass) {
@@ -715,6 +807,16 @@ export default function ScheduleManager() {
       setAllClasses((prev) =>
         prev.map((x) => (x.id === c.id ? { ...x, isActive: false } : x))
       );
+      setFormOpen(false);
+    }
+  }
+
+  async function handleDelete(c: Klass) {
+    if (!confirm(`Permanently delete "${c.label}"? This will also delete all sessions and enrolments for this class. This cannot be undone.`)) return;
+    const res = await fetch(`/api/classes/${c.id}?hard=1`, { method: "DELETE" });
+    if (res.ok) {
+      setAllClasses((prev) => prev.filter((x) => x.id !== c.id));
+      setFormOpen(false);
     }
   }
 
@@ -728,12 +830,30 @@ export default function ScheduleManager() {
       setAllClasses((prev) =>
         prev.map((x) => (x.id === c.id ? { ...x, isActive: true } : x))
       );
+      setFormOpen(false);
+    }
+  }
+
+  async function handleSetClassroom(c: Klass, classroom: string) {
+    const res = await fetch(`/api/classes/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classroom }),
+    });
+    if (res.ok) {
+      setAllClasses((prev) =>
+        prev.map((x) => (x.id === c.id ? { ...x, classroom } : x))
+      );
     }
   }
 
   const filtered = filterAndSort(allClasses, levelFilter, weekendsOnly, showInactive);
   const activeCount = allClasses.filter((c) => c.isActive).length;
   const fullCount = allClasses.filter((c) => c.isActive && c.isFull).length;
+  const tutorOptions = useMemo(() => {
+    const names = [...new Set(allClasses.map((c) => c.tutor).filter(Boolean))];
+    return names.sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+  }, [allClasses]);
 
   return (
     <div className="space-y-4">
@@ -827,26 +947,26 @@ export default function ScheduleManager() {
           weekendsOnly={weekendsOnly}
           canEdit={canEdit}
           onEdit={openEdit}
-          onToggleFull={handleToggleFull}
-          onDeactivate={handleDeactivate}
-          onReactivate={handleReactivate}
+          onSetClassroom={handleSetClassroom}
         />
       ) : (
         <ListView
           classes={filtered}
           canEdit={canEdit}
           onEdit={openEdit}
-          onToggleFull={handleToggleFull}
-          onDeactivate={handleDeactivate}
-          onReactivate={handleReactivate}
         />
       )}
 
       {formOpen && (
         <ClassForm
           initial={editTarget ? klassToForm(editTarget) : EMPTY_FORM}
+          editTarget={editTarget}
+          tutorOptions={tutorOptions}
           onSave={handleSave}
           onClose={() => setFormOpen(false)}
+          onDeactivate={editTarget ? () => handleDeactivate(editTarget) : undefined}
+          onReactivate={editTarget ? () => handleReactivate(editTarget) : undefined}
+          onDelete={editTarget ? () => handleDelete(editTarget) : undefined}
           saving={saving}
         />
       )}

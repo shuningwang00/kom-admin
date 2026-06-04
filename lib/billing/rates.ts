@@ -18,7 +18,7 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function parseSection(sectionLabel: string): {
+export function parseSection(sectionLabel: string): {
   level: "lower" | "upper" | "jc" | "unknown";
   mentionsA: boolean;
   mentionsE: boolean;

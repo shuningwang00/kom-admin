@@ -1,37 +1,21 @@
 import { assertCanUseBilling } from "@/lib/auth/access";
-import { jsonError } from "@/lib/api/json";
-import { loadBillingFromSpreadsheet } from "@/lib/sheets/client";
-import { parseSpreadsheetId } from "@/lib/sheets/spreadsheet-id";
-import { NextResponse } from "next/server";
+import { jsonError, jsonOk } from "@/lib/api/json";
+import { listBillingDashboard } from "@/lib/billing/invoice-db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
     await assertCanUseBilling();
+    const { searchParams } = new URL(request.url);
+    const month = searchParams.get("month")?.trim() ?? "";
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return jsonError("month must be YYYY-MM");
+    }
+    const rows = await listBillingDashboard(month);
+    return jsonOk({ rows });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unauthorized";
-    return jsonError(message, message.includes("Billing") ? 403 : 401);
-  }
-
-  const { searchParams } = new URL(request.url);
-  const raw = searchParams.get("spreadsheetId")?.trim() ?? "";
-  const spreadsheetId = parseSpreadsheetId(raw);
-
-  if (!spreadsheetId) {
-    return NextResponse.json(
-      { error: "Paste a Google Sheets URL or spreadsheet ID." },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const preview = await loadBillingFromSpreadsheet(spreadsheetId);
-    return NextResponse.json(preview);
-  } catch (err) {
-    console.error("billing load error:", err);
-    const message =
-      err instanceof Error ? err.message : "Failed to load spreadsheet.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Failed";
+    return jsonError(msg, msg.includes("Billing") || msg.includes("Unauthorized") ? 401 : 500);
   }
 }

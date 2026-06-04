@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   try {
     await assertCanMutateClasses();
     const body = (await request.json()) as {
-      label?: string;
+      subject?: string;
       level?: string;
       time?: string;
       tutor?: string;
@@ -47,25 +47,34 @@ export async function POST(request: Request) {
       feePerLesson?: string;
       description?: string;
       isFull?: boolean;
+      classroom?: string;
     };
-    const label = String(body.label ?? "").trim();
-    if (!label) return jsonError("Class label is required.");
+    const level = String(body.level ?? "").trim();
+    const subject = String(body.subject ?? "").trim();
+    const label = [level, subject].filter(Boolean).join(" ");
+    if (!label) return jsonError("Level or subject is required.");
     const weekday = WEEKDAYS.includes(body.weekday as (typeof WEEKDAYS)[number])
       ? (body.weekday as (typeof WEEKDAYS)[number])
       : "other";
+
+    const classroom = typeof body.classroom === "string" && ["", "c1", "c2"].includes(body.classroom)
+      ? body.classroom
+      : "";
 
     const db = getDb();
     const [created] = await db
       .insert(classes)
       .values({
         label,
-        level: String(body.level ?? "").trim(),
+        subject,
+        level,
         time: String(body.time ?? "").trim(),
         tutor: String(body.tutor ?? "").trim(),
         weekday,
         feePerLesson: String(body.feePerLesson ?? "").trim(),
         description: String(body.description ?? "").trim(),
         isFull: body.isFull === true,
+        classroom,
       })
       .returning();
     return jsonOk({ class: created }, 201);

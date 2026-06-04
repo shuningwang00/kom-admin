@@ -143,6 +143,7 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
 
   const [editFeeId, setEditFeeId] = useState<string | null>(null);
   const [editFeeValue, setEditFeeValue] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const tutorOptions = useMemo(() => {
     const names = new Set(classes.map((c) => c.tutor.trim()).filter(Boolean));
@@ -829,9 +830,15 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
             {participants.map((p) => (
               <li key={p.id} className="px-4 py-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="font-medium text-zinc-900">
+                  {/* Expand toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                    className="font-medium text-zinc-900 hover:text-orange-700 flex items-center gap-1"
+                  >
+                    <span className={`text-xs text-zinc-400 transition-transform ${expandedId === p.id ? "rotate-90" : ""}`}>▶</span>
                     {participantName(p)}
-                  </span>
+                  </button>
                   <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
                     {p.studentId ? "Student" : "Lead"}
                   </span>
@@ -879,16 +886,6 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
                     </button>
                   )}
 
-                  {/* Fee paid toggle */}
-                  {p.fee && (
-                    <button
-                      type="button"
-                      onClick={() => toggleFeePaid(p)}
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${p.feePaid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}
-                    >
-                      {p.feePaid ? "Paid" : "Unpaid"}
-                    </button>
-                  )}
 
                   {/* Convert */}
                   {!p.studentId && p.status === "active" && (
@@ -917,6 +914,51 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
                     Remove
                   </button>
                 </div>
+
+                {/* Expanded details */}
+                {expandedId === p.id && (
+                  <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg bg-zinc-50 px-3 py-2.5 text-xs sm:grid-cols-3">
+                    {p.school && (
+                      <div>
+                        <span className="font-medium text-zinc-500">School</span>
+                        <p className="text-zinc-800">{p.school}</p>
+                      </div>
+                    )}
+                    {p.primaryContact && (
+                      <div>
+                        <span className="font-medium text-zinc-500">Primary Contact</span>
+                        <p className="text-zinc-800">{p.primaryContact}</p>
+                        {p.primaryContactType && (
+                          <p className="text-zinc-400">{p.primaryContactType.charAt(0).toUpperCase() + p.primaryContactType.slice(1)}</p>
+                        )}
+                      </div>
+                    )}
+                    {p.secondaryContact && (
+                      <div>
+                        <span className="font-medium text-zinc-500">Secondary Contact</span>
+                        <p className="text-zinc-800">{p.secondaryContact}</p>
+                        {p.secondaryContactType && (
+                          <p className="text-zinc-400">{p.secondaryContactType.charAt(0).toUpperCase() + p.secondaryContactType.slice(1)}</p>
+                        )}
+                      </div>
+                    )}
+                    {p.parentName && (
+                      <div>
+                        <span className="font-medium text-zinc-500">Parent Name</span>
+                        <p className="text-zinc-800">{p.parentName}</p>
+                      </div>
+                    )}
+                    {p.notes && (
+                      <div>
+                        <span className="font-medium text-zinc-500">Notes</span>
+                        <p className="text-zinc-800">{p.notes}</p>
+                      </div>
+                    )}
+                    {!p.school && !p.parentName && !p.primaryContact && !p.secondaryContact && !p.notes && (
+                      <p className="col-span-2 text-zinc-400 sm:col-span-3">No details recorded.</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Conversion form */}
                 {convertingId === p.id && (

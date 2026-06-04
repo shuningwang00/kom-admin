@@ -1,6 +1,6 @@
 # KOM Admin — application manual
 
-Onboarding guide for how **kom-billing** (KOM Admin at `admin.knockoutmath.sg`) is built, how the pieces connect, and how data flows. Written for a new developer or staff member who needs the system at a glance.
+Onboarding guide for **kom-billing** (KOM Admin at `admin.knockoutmath.sg`). Covers architecture, data flows, billing rules, and ops. Written for a new developer or staff member who needs the system at a glance.
 
 For local setup and env vars, see the root [README](../README.md).
 
@@ -8,26 +8,43 @@ For local setup and env vars, see the root [README](../README.md).
 
 ## What this app is
 
-Knockout Math’s **admin app** for:
+Knockout Math's **admin app** for:
 
-1. **Roster** — students, classes, enrollments, trials  
-2. **Attendance** — daily sessions, marking, makeups (M/U), calendar  
-3. **Billing** — monthly invoices from **Google Sheets** (PDF + WhatsApp links)
+1. **Roster** — students, classes, enrollments, trials
+2. **Schedule** — direct class entry, session generation, calendar
+3. **Attendance** — daily sessions, marking, makeups (M/U), waives
+4. **Billing** — fully Postgres-native monthly invoices (PDF → Google Drive → WhatsApp)
+5. **People** — staff claims, clock-in/out, availability, time-off
 
-**Production:** separate Vercel project, domain `admin.knockoutmath.sg`, repo [kom-admin](https://github.com/shuningwang00/kom-admin).
-
-**Local:** `npm run dev` → http://localhost:3002 (kom-website uses port 3000).
+**Production:** `admin.knockoutmath.sg` deployed on Vercel.  
+**Local:** `npm run dev` → http://localhost:3002
 
 ---
 
-## Two tracks of truth
+## Tech stack
 
-| Track | Storage | Purpose |
-|--------|---------|---------|
-| **Attendance & makeup** | **Postgres** (`DATABASE_URL`) | Golden source for who attended, who missed, M/U bookings, waives |
-| **Monthly billing** | **Google Sheets** (per month) | Invoice amounts, payment columns, PDF generation |
+| Layer | Technology |
+|-------|-----------|
+| Framework | Next.js App Router |
+| Database | Postgres via Neon + Drizzle ORM |
+| Auth | Site password + Google OAuth |
+| PDF | `@react-pdf/renderer` |
+| File storage | Google Drive (per-file public link sharing) |
+| Messaging | WhatsApp `wa.me` deep links |
+| UI | Tailwind CSS |
 
-Attendance in the app is the operational source of truth for lessons. Billing sheets are loaded separately for invoicing; they are not fully auto-synced from every Postgres row today. Staff align sheet cells (e.g. `MU on 27/05`) with what was saved in the app.
+Key library folders:
+
+| Folder | Responsibility |
+|--------|----------------|
+| `lib/billing/` | Invoice compute, DB operations, rates |
+| `lib/pdf/` | PDF document components, rendering, fonts |
+| `lib/attendance/` | Sessions, makeup, hub, consolidation, headcount |
+| `lib/enrollments/` | Eligibility, roster queries |
+| `lib/scheduling/` | Session generation, time-slot parsing |
+| `lib/google/` | Drive upload/delete/permissions, Sheets, OAuth |
+| `lib/auth/` | Roles, access checks |
+| `components/` | Page UI (billing dashboard, attendance, etc.) |
 
 ---
 
@@ -35,265 +52,294 @@ Attendance in the app is the operational source of truth for lessons. Billing sh
 
 | Role | Who | Can access |
 |------|-----|------------|
-| **Owner** | `MASTER_ADMIN_EMAIL` or site password | Everything: classes, generate sessions, team access, makeup, billing |
-| **Staff** | Google sign-in + allowlist `staff` | Attendance, makeup, trials, students, enrollments, billing — not classes CRUD or session generation |
-| **Tutor** | Google sign-in + allowlist `tutor` + `tutor_match` | Own classes only: `/attendance/tutor` and by-day sessions |
+| **Owner** | `MASTER_ADMIN_EMAIL` or site password | Everything |
+| **Staff** | Google sign-in + allowlist `staff` | Attendance, students, enrollments, billing — not class CRUD or session generation |
+| **Tutor** | Google sign-in + allowlist `tutor` | Own classes only: `/attendance/tutor` |
 
-Auth: site password (`BILLING_ADMIN_PASSWORD`) + optional Google OAuth. Team list: **Team access** (`/admin/teachers`) → `site_allowlist` table.
-
----
-
-## Tech stack
-
-- **Next.js** (App Router) — UI + API routes under `app/api/`
-- **Postgres** — Drizzle ORM (`lib/db/schema.ts`, `lib/db/index.ts`)
-- **Google APIs** — OAuth for Sheets (billing + class timetable sync)
-- **Tailwind** — UI
-
-Key library folders:
-
-| Folder | Responsibility |
-|--------|----------------|
-| `lib/attendance/` | Sessions list, session detail, makeup, hub, consolidation, headcount |
-| `lib/enrollments/` | Who is active on a given date |
-| `lib/scheduling/` | Session generation, time-slot parsing |
-| `lib/classes-sheet/` | Sync active classes from Google Sheet snapshot |
-| `lib/sheets/` | Parse monthly billing spreadsheets |
-| `lib/auth/` | Roles, access checks |
-| `components/` | Page UI (attendance, makeup manager, students, etc.) |
+Auth: site password (`BILLING_ADMIN_PASSWORD`) + Google OAuth. Team list: **Settings → Manage Access** → `site_allowlist` table.
 
 ---
 
-## Database model (core tables)
-
-```
-students ──┬── enrollments ─── classes
-           │                      │
-           │                      └── class_sessions
-           │                              │
-           └── attendance_records ────────┘
-
-trial_leads ──(convert)──► students
-billing_groups ◄── students (optional)
-site_allowlist — auth emails / tutor_match
-audit_log — changes to attendance & sessions
-```
-
-### `students`
-
-Name, contacts (`primary_contact`, `secondary_contact`), school, `start_date`, optional `billing_group_id`, `archived_at`.
-
-### `classes`
-
-Label (e.g. S1, S2), level, weekday, `time` (sheet style e.g. `615pm to 8pm`), tutor. Synced from Google Sheet or edited in **Classes**.
-
-### `enrollments`
-
-Links student ↔ class: `started_at`, `ended_at`, pause window, `trial_attended_at`, `free_trial`.
-
-**Eligibility** (`lib/enrollments/eligibility.ts`) decides if a student appears on a session roster for a given date (registration start, withdrawal, pause, trial day).
-
-### `class_sessions`
-
-One row per class per calendar date (from **generate sessions**), or ad-hoc for custom makeups.
-
-- `scheduled_date`, `time_label` (canonical form: `6:15pm – 8pm`)
-- `reschedule_note` — empty for regular; `"Makeup session"` for ad-hoc M/U slots
-- `relief_tutor` — when relief cover is needed
-
-### `attendance_records`
-
-Per student per session: `status`, `makeup_note`, `updated_by`.
-
-Statuses include: `present`, `absent_pending`, `waive`, `pause`, `free_trial`, `makeup_scheduled`, `makeup_done`, `makeup_absent`.
-
-**Staff saves** (`updated_by` = owner email, tutor email, `owner@site`, etc.) are treated as **billing truth** and are not auto-deleted on page load.
-
----
-
-## How pages link together
+## Pages
 
 | Route | What it does |
-|-------|----------------|
-| `/` | Redirects by role (tutor → tutor overview, else attendance) |
-| `/login` | Site password |
-| `/students` | Student roster |
-| `/classes` | Class timetable (owner) |
-| `/enrollments` | Student ↔ class links |
-| `/attendance` | Pick date → list sessions (only classes with enrollments that day) |
+|-------|-------------|
+| `/students` | Student roster, billing group assignment |
+| `/classes` | Class timetable — Level + Subject per class |
+| `/enrollments` | Student ↔ class links with start/end dates |
+| `/schedule` | Direct session entry (replaces Google Sheet sync) |
+| `/attendance` | Pick date → list sessions → mark attendance |
 | `/attendance/session/[id]` | Mark roster; schedule makeup (staff+) |
-| `/attendance/tutor` | Tutor’s classes overview |
-| `/makeup` | Hub: needs scheduling, scheduled, waived, relief tutor |
+| `/attendance/tutor` | Tutor's classes overview |
+| `/makeup` | Hub: needs scheduling, scheduled, waived, relief |
 | `/trials` | Trial leads → convert to student |
 | `/calendar` | Month calendar of sessions |
-| `/billing` | Load Google Sheet → invoices / WhatsApp |
-| `/admin/teachers` | Allowlist (owner) |
-
-Shell layout: `components/app-shell.tsx` — left sidebar nav, role-filtered links.
+| `/billing` | Monthly invoice dashboard — generate, track, send |
+| `/programmes` | Holiday programmes |
+| `/people/claims` | Staff expense claims |
+| `/people/clock` | Clock-in/out |
+| `/people/time-off` | Time-off requests |
+| `/settings` | Manage access, permissions |
 
 ---
 
-## End-to-end workflows
+## Database schema
 
-### 1. Timetable → sessions
+```
+billing_groups ◄── students ──┬── enrollments ── classes ── class_sessions
+                               │                                    │
+                               │                         attendance_records
+                               │
+                               └── invoice_students ── invoices ── invoice_line_items
+                                                              └──── invoice_payments
+                               │
+                               └── pending_credits
+                               └── student_rate_overrides
 
-```mermaid
-flowchart LR
-  Sheet[Google class sheet] --> Classes[(classes)]
-  UI[Classes page] --> Classes
-  Classes --> Gen[generateSessionsForMonth]
-  Gen --> Sessions[(class_sessions)]
-  Sessions --> AttList[Attendance daily]
-  Sessions --> Cal[Calendar]
+trial_leads ──(convert)──► students
+site_allowlist — auth emails / tutor_match
 ```
 
-- Owner runs **generate sessions** for a month (`app/api/sessions/generate`).
-- New sessions use **canonical** `time_label` from class time (`lib/scheduling/time-slots.ts`).
+### Core tables
 
-### 2. Daily attendance
+**`students`** — name, `parent_name`, school, `billing_group_id` (null = solo billing), `archived_at`.
 
-```mermaid
-flowchart TD
-  Date[/attendance — pick date] --> List[listSessionsForDate]
-  List -->|classes with active enrollments| Cards[Session cards + expected counts]
-  Cards --> Open[/attendance/session/id]
-  Open --> Roster[enrollments + eligibility]
-  Roster --> Consolidate[peer slots same programme/time/tutor]
-  Consolidate --> Save[Present / Waive / Pause / Free trial / M/U done]
-  Save --> DB[(attendance_records + audit_log)]
+**`billing_groups`** — groups siblings together so they share one invoice. Students in the same group are billed as one family row.
+
+**`classes`** — `label` (auto-derived: `"${level} ${subject}"`), `level`, `subject`, weekday, time, tutor.
+
+**`enrollments`** — links student ↔ class: `started_at`, `ended_at`, `registration_fee_due` (legacy flag — not used for new billing logic).
+
+**`class_sessions`** — one row per class per date. `status`: `scheduled` | `cancelled` | `rescheduled_away`.
+
+**`attendance_records`** — per student per session. `status`: `present` | `absent_pending` | `waive` | `pause` | `free_trial` | `makeup_scheduled` | `makeup_done` | `makeup_absent`.
+
+### Billing tables
+
+**`invoices`** — one per family (or solo student) per billing month.
+
+| Column | Notes |
+|--------|-------|
+| `invoice_number` | Format `INV{YYYYMM}{seq:04}` e.g. `INV2026050001` |
+| `status` | `draft` → `sent` → `partial` / `paid` → `void` |
+| `subtotal` | Sum of tuition + registration fee line items |
+| `discount_amount` | Manual discount entered at invoice generation |
+| `balance_forward` | Outstanding balance from all prior unpaid invoices |
+| `credit_applied` | Credits from overpayments or waived sessions |
+| `total_due` | `subtotal − discount + balance_forward − credit_applied` |
+| `total_paid` | Sum of all recorded payments |
+| `pdf_file_id` | Google Drive file ID (set after PDF generation) |
+
+**`invoice_students`** — junction table: which students are covered by each invoice. Primary key `(student_id, billing_month)` enforces one invoice per student per month. Rows are **deleted on void** so re-invoicing is possible.
+
+**`invoice_line_items`** — one row per lesson (or fee/credit). Tagged with `student_id` so multi-student PDFs can group by child.
+
+| `type` | Meaning |
+|--------|---------|
+| `tuition` | One lesson at resolved rate |
+| `registration_fee` | One-time $40 reg + material fee |
+| `balance_forward` | Unpaid amount from a prior invoice |
+| `credit` | Overpayment or waived-session credit |
+| `discount` | Manual discount |
+
+**`invoice_payments`** — payment records linked to an invoice. Each payment updates `total_paid` and status. Overpayments create a `pending_credits` row.
+
+**`pending_credits`** — credits available to offset future invoices. `applied_at` is set when consumed by an invoice; cleared if that invoice is voided.
+
+**`student_rate_overrides`** — per-student (optionally per-class) rate, with optional `valid_from` / `valid_to` date range.
+
+---
+
+## Billing — how it works
+
+### Rate resolution (per session)
+
+1. Check `student_rate_overrides` — class-specific override wins over general override.
+2. Fall back to `LESSON_RATES` by tier:
+
+| Class | Rate |
+|-------|------|
+| Lower Sec (Sec 1–2) | S$70 / lesson |
+| Upper Sec (Sec 3–4), single subject | S$85 / lesson |
+| Upper Sec, same student on both A-Math **and** E-Math | S$77.50 / lesson (bundle) |
+| JC | S$100 / lesson |
+
+3. Fall back to `getDefaultRatePerSession()` from config for anything else.
+
+### Session inclusion rules
+
+- All sessions are billed by default.
+- `waive` → billed at S$0 (shows on invoice as a waived line).
+- `rescheduled_away` and `cancelled` → skipped entirely.
+- Sessions outside the student's enrollment period (`started_at` / `ended_at`) → skipped.
+- Makeup slots already covered by a `makeup_done` record → not double-billed.
+
+### Effective start date (rolling un-invoiced months)
+
+When computing an invoice for month M, sessions are fetched from **`effectiveStart`**, not just month M:
+
+- `effectiveStart` = month after the **most recent non-voided invoice** for that student.
+- If no prior invoice exists, falls back to the student's earliest enrollment start month.
+- This means if a student was not invoiced in April, their April sessions automatically appear in May's invoice.
+
+### Registration fee
+
+- One S$40 fee per student, billed in the month their enrollment started.
+- Only applies to enrollments that started on or after **2026-05-01** (legacy students are exempt).
+- Checks `invoice_line_items` via `invoice_students` to confirm it hasn't been billed before (ignores voided invoices).
+
+### Balance forward
+
+All prior invoices with status `sent` or `partial` contribute their outstanding balance `(total_due − total_paid)` as a balance-forward line item.
+
+### Invoice lifecycle
+
+```
+[INV button clicked]
+       │
+       ▼
+  computeInvoicePreview()     ← shows line items in modal
+       │
+  [user confirms]
+       │
+       ▼
+  createInvoice()             ← status: "draft", sentAt = now
+       │
+  [auto-trigger PDF generation]
+       │
+       ▼
+  renderDbInvoicePdf()        ← @react-pdf/renderer
+  uploadInvoicePdfToDrive()   ← Drive upload + set anyone-with-link permission
+       │
+       ▼
+  Dashboard shows: PDF link + WA button + SENT button
+       │
+  [click WA] → opens WhatsApp with pre-filled message + Drive link
+  [click SENT] → status: "sent"
+       │
+  [click PAID] → recordPayment() → status: "partial" or "paid"
+  [click RCP]  → generates receipt PDF → Drive upload
+       │
+  [click VOID] → voidInvoice():
+                  - status: "void"
+                  - deletes invoice_students rows (enables re-invoicing)
+                  - restores pending_credits
+                  - deletes Drive files
+                  - effectiveStart rolls back → sessions flow into next invoice
 ```
 
-- **Consolidation** (`lib/attendance/session-slot-matching.ts`): merges sibling sessions (e.g. two S2 groups same evening) for headcount and display.
-- **Expected counts** (`lib/attendance/expected-counts.ts`, `session-headcount.ts`): who must be marked vs waived vs M/U visitor.
+### Family invoicing (billing groups)
 
-### 3. Makeup (M/U)
+Students sharing a `billing_group_id` appear as **one row** on the billing dashboard and produce **one invoice** with per-student sections. Each line item is tagged with `student_id`. PDF sections are headed by the child's name. The contact name at the top is the parent name (`parent_name` from students table).
 
-```mermaid
-flowchart TD
-  Miss[Missed lesson: absent_pending] --> Need[Makeup hub — Needs]
-  Need --> Sched[Schedule makeup: date + class + custom time]
-  Sched --> Book[makeup_scheduled + note MU on DD/MM · time]
-  Sched --> AdHoc[Optional ad-hoc class_session on M/U day]
-  Book --> Upcoming[Makeup hub — Scheduled]
-  Upcoming --> Lesson[Open M/U day session]
-  Lesson --> Present[Mark present on M/U]
-  Present --> Done[makeup_done on missed + present on M/U]
-  Waive[Waive on missed] --> WaivedList[Makeup hub — Waived]
+---
+
+## PDF documents
+
+### Invoice (`lib/pdf/db-invoice-document.tsx`)
+
+- **Table**: Description (flex) | Amount (fixed 76px)
+- Each tuition row: class label on line 1, date as smaller grey text on line 2
+- Totals box: subtotal / discount / balance forward / credit (only shown when non-zero) + **Total due**
+- Payment section: PayNow UEN + bank transfer details + QR card
+
+### Receipt (`lib/pdf/db-receipt-document.tsx`)
+
+- Same table structure as invoice (tuition lines only — no meta items)
+- Green accent stripe at top
+- Shows **Amount paid** instead of Total due
+- Receipt number: `INV2026050001` → `RCP2026050001`
+
+### File naming
+
+- Invoice PDF: `INV2026050001-Student-Name.pdf`
+- Receipt PDF: `RCP2026050001-Student-Name.pdf`
+
+### Drive sharing
+
+Every uploaded PDF has a file-level `type:anyone, role:reader` permission set immediately after upload. This makes the file viewable by anyone with the link, without exposing the folder or other files. If this call fails, the route throws a clear error.
+
+---
+
+## Attendance workflows
+
+### Daily attendance
+
+```
+/attendance → pick date
+    → listSessionsForDate (classes with active enrollments)
+    → /attendance/session/[id]
+    → mark: Present / Waive / Pause / Free trial / M/U done
+    → attendance_records + audit_log
 ```
 
-**Makeup note** should include custom time when off-timetable, e.g. `MU on 27/05 · 2pm – 3:45pm`, so hub and session times stay correct.
+### Makeup (M/U)
 
-**Visibility rules** (`lib/attendance/makeup-session-rules.ts`, `session-roster-visibility.ts`):
+1. Missed lesson → `absent_pending`
+2. Makeup hub → **Needs scheduling** → pick date + class + optional custom time
+3. Saves `makeup_scheduled` on missed record, optionally creates ad-hoc `class_session`
+4. On M/U day → mark `present` → original record becomes `makeup_done` with note `MU on DD/MM`
+5. Billing: `makeup_done` sessions are billed on the makeup date, not the original date. The original date is skipped via `makeupDoneDates` set in the billing engine.
 
-- On **missed date**: student with `makeup_done` + note may be hidden from regular roster (marks on M/U day instead).
-- On **M/U date**: shown as M/U visitor; not as a “missed link” on that same day.
+### Waive
 
-**Relief tutor:** sessions can flag `relief_tutor`; hub lists **Relief tutor needed**.
-
-### 4. Trials
-
-1. Add lead in **Trials** → `trial_leads`.  
-2. Optional: mark trial attendance on trial date.  
-3. **Convert** → creates `students` + `enrollments` → appears on normal attendance rosters.
-
-### 5. Billing
-
-1. **Billing** → Connect Google → paste monthly spreadsheet ID.  
-2. Parser reads weekday tabs, student rows, date columns (`1`, `Waive`, `MU on …`).  
-3. Generate PDF invoice / WhatsApp link (`lib/whatsapp.ts`, `@react-pdf/renderer`).
-
-Does not replace Postgres attendance; operators reconcile sheet with app marks.
+Marking a session `waive` sets rate to S$0. If a waived session is on an already-issued invoice, `handleWaivedSession()` removes the line item and recalculates `total_due`. Overpayment creates a `pending_credit`.
 
 ---
 
-## Data preservation (important)
+## End-to-end: billing month
 
-Automatic repair/purge on page load is **disabled by default** so staff work is not lost.
-
-| Setting | Effect |
-|---------|--------|
-| Default | No purge/repair when opening Makeup hub, attendance list, or session page |
-| `ATTENDANCE_AUTO_REPAIR=true` | Opt-in only: legacy cleanup helpers may run |
-
-**Rules** (`lib/attendance/data-preservation.ts`):
-
-- `updated_by` = staff/tutor → **never** auto-deleted  
-- `updated_by` = `system` or `system-repair` → disposable by maintenance tools only when opt-in  
-
-**Do not** enable `ATTENDANCE_AUTO_REPAIR` in production unless running a deliberate one-off cleanup.
+1. **Generate sessions** for the month (owner — `/api/sessions/generate`).
+2. Mark attendance throughout the month.
+3. Open **Billing** → select month.
+4. Dashboard shows all active students with enrolled classes, grouped by level (and "Siblings" for billing groups). Estimated totals are live previews using `computeInvoicePreview`.
+5. Click **INV** → preview modal shows all line items, optional discount + remarks → **Generate invoice + PDF**.
+6. PDF link appears → click **WA** to send parent a WhatsApp message with the Drive link.
+7. Click **SENT** once you've confirmed delivery.
+8. Parent pays → click **PAID** → enter amount + date → status updates.
+9. Click **RCP** to generate and share receipt.
+10. If correction needed → **VOID** → re-click INV to start fresh.
 
 ---
 
-## Time labels
-
-All slot strings normalize to **`6:15pm – 8pm`** (colon minutes, en-dash):
-
-- Class sheet: `615pm to 8pm` → stored/displayed as `6:15pm – 8pm`
-- Consolidation keys use normalized times so morning/evening slots do not merge incorrectly
-- Custom M/U: embed time in makeup **note** and pick **custom** slot when scheduling
-
-One-off DB alignment: `lib/scheduling/normalize-stored-time-labels.ts` (`normalizeAllStoredTimeLabelsInDb`).
-
----
-
-## API surface (representative)
+## API surface
 
 | Area | Routes |
 |------|--------|
 | Auth | `/api/auth/login`, `/api/auth/me`, `/api/auth/google`, `/api/auth/logout` |
-| Health | `/api/health` |
 | Students | `/api/students`, `/api/students/[id]` |
-| Classes | `/api/classes` |
+| Billing groups | `/api/billing-groups`, `/api/billing-groups/[id]` |
+| Classes | `/api/classes`, `/api/classes/[id]` |
 | Enrollments | `/api/enrollments`, `/api/enrollments/[id]` |
 | Sessions | `/api/sessions`, `/api/sessions/generate`, `/api/sessions/[id]`, `/api/sessions/[id]/attendance` |
-| Makeup | `/api/makeup`, `/api/sessions/makeup`, `/api/sessions/[id]/makeup-booking` |
+| Makeup | `/api/makeup`, `/api/sessions/[id]/makeup-booking` |
 | Trials | `/api/trials`, `/api/trials/[id]/convert` |
-| Billing | `/api/billing`, `/api/invoices/pdf` |
-| Admin | `/api/admin/teachers` |
+| Schedule (public) | `/api/public/schedule` |
+| **Billing dashboard** | `GET /api/billing?month=YYYY-MM` |
+| **Invoice preview** | `GET /api/billing/preview?studentIds=...&month=YYYY-MM` |
+| **Create invoice** | `POST /api/billing/invoices` |
+| **Invoice CRUD** | `GET/PATCH /api/billing/invoices/[id]` |
+| **Record payment** | `POST /api/billing/invoices/[id]/payments` |
+| **Generate PDF** | `POST /api/billing/invoices/[id]/pdf` |
+| **Generate receipt** | `POST /api/billing/invoices/[id]/receipt` |
+| People | `/api/claims`, `/api/clock`, `/api/staff-availability`, `/api/staff-time-off` |
+| Admin | `/api/admin/teachers`, `/api/admin/permissions` |
 
-Business logic lives in `lib/`, not only in route handlers.
-
----
-
-## Deploy and database
-
-1. Push to `kom-admin` → Vercel deploys `admin.knockoutmath.sg`.  
-2. Set env vars from `.env.example` (especially `DATABASE_URL`, `BILLING_ADMIN_PASSWORD`, Google OAuth with production redirect).  
-3. Align production schema: `DATABASE_URL=... npm run db:push` (or `db:migrate` for tracked migrations). After People features ship, ensure **`0016_staff_availability_admin_roster`** and **`0017_staff_time_off`** are applied (missing `staff_time_off` causes “Failed query” on Time off / Availability).  
-4. Google Cloud: add redirect `https://admin.knockoutmath.sg/api/auth/google/callback`.
-
-**Schema note:** `students.contact` was replaced by `primary_contact` / `secondary_contact` (migration `0003_student_contacts.sql`). Production app and DB must stay on the same version.
+Business logic lives in `lib/`, not in route handlers.
 
 ---
 
-## Tests
+## Common pitfalls
 
-```bash
-npm test
-```
-
-Covers time parsing, consolidation keys, makeup visibility, headcount, data preservation, enrollment eligibility.
-
----
-
-## UI: sidebar
-
-`components/app-shell.tsx`:
-
-- **Desktop:** sidebar open by default; thin collapsed rail with hamburger on sidebar; main header aligns `h-14` border with sidebar header.  
-- **Mobile:** sidebar off-canvas; hamburger in top bar only; overlay drawer.
-
----
-
-## Common pitfalls (from production debugging)
-
-| Symptom | Likely cause |
-|---------|----------------|
-| `students.contact` query error | Old deploy against migrated DB — deploy latest + `db:push` |
-| Every class on attendance list | Old code without enrollment filter — deploy latest |
-| Wrong M/U time in hub | Note missing custom time; hub read class default from missed session |
-| Missing makeups after navigation | Historical auto-purge (fixed); re-enter if lost; keep auto-repair off |
-| Two sessions same day wrong merge | Corrupted `time_label` (e.g. 9am on evening slot) — fix session or reschedule |
+| Symptom | Cause / Fix |
+|---------|-------------|
+| Voided sessions not in next month's INV | Old void didn't delete `invoice_students` rows — void and re-generate with new code |
+| Drive PDF link says "no access" | PDF was uploaded before `permissions.create` was added — void and re-generate |
+| Invoice already exists error | `invoice_students` row from a voided invoice lingers — `createInvoice` purges these automatically now |
+| Sessions from future months appearing in INV | Check `effectiveStart` — should be month after last non-voided invoice |
+| Reg fee missing | Check enrollment `started_at` ≥ 2026-05-01 and no prior non-voided invoice has a reg fee line item for this student |
+| Wrong M/U time in hub | Makeup note missing custom time — add `· 2pm – 3:45pm` style to note |
+| 01-of-next-month leaking into current invoice | Session fetch uses `lt(scheduledDate, monthEnd)` not `lte` — already fixed |
 
 ---
 
@@ -301,69 +347,37 @@ Covers time parsing, consolidation keys, makeup visibility, headcount, data pres
 
 | Topic | Start here |
 |-------|------------|
+| Invoice computation | `lib/billing/compute-invoice.ts` — `computeInvoicePreview`, `computeForStudent` |
+| Invoice DB operations | `lib/billing/invoice-db.ts` — create, void, payments, dashboard query |
+| Rate logic | `lib/billing/rates.ts`, `lib/billing/registration-fee.ts` |
+| Invoice PDF | `lib/pdf/db-invoice-document.tsx` |
+| Receipt PDF | `lib/pdf/db-receipt-document.tsx` |
+| Drive upload + sharing | `lib/google/drive.ts` — `uploadPdfToDrive`, `deleteFileFromDrive` |
 | Session list filter | `lib/attendance/list-sessions.ts` |
 | Session page roster | `lib/attendance/session-detail.ts` |
-| Schedule / complete makeup | `lib/attendance/makeup.ts`, `lib/attendance/makeup-booking.ts` |
+| Makeup schedule / complete | `lib/attendance/makeup.ts`, `lib/attendance/makeup-booking.ts` |
 | Makeup hub lists | `lib/attendance/makeup-hub.ts` |
-| Slot merging | `lib/attendance/session-slot-matching.ts`, `merge-consolidated-sessions.ts` |
-| Who appears on roster | `lib/enrollments/eligibility.ts`, `lib/enrollments/roster-query.ts` |
-| Preservation | `lib/attendance/data-preservation.ts` |
+| Slot merging | `lib/attendance/session-slot-matching.ts` |
+| Enrollment eligibility | `lib/enrollments/eligibility.ts` |
 | Time slots | `lib/scheduling/time-slots.ts` |
-| Generate month | `lib/scheduling/generate-sessions.ts` |
-| Class sync | `lib/classes-sheet/sync.ts` |
-| Billing parse | `lib/sheets/` |
+| Generate month sessions | `lib/scheduling/generate-sessions.ts` |
+| DB schema | `lib/db/schema.ts` |
 
 ---
 
-## Diagram: full system (reference)
+## Deploy
 
-```mermaid
-flowchart TB
-  subgraph external [External]
-    GS_Classes[Google Sheet — class timetable]
-    GS_Billing[Google Sheet — monthly billing]
-    GAuth[Google OAuth]
-  end
+1. Push to repo → Vercel deploys `admin.knockoutmath.sg`.
+2. Set env vars (see `.env.example`): `DATABASE_URL`, `BILLING_ADMIN_PASSWORD`, `MASTER_ADMIN_EMAIL`, Google OAuth credentials, Drive folder IDs.
+3. Run pending migrations: `DATABASE_URL=... npx drizzle-kit migrate` (or apply SQL files in `drizzle/` manually via Neon console).
+4. Google Cloud: ensure `https://admin.knockoutmath.sg/api/auth/google/callback` is an authorised redirect URI. Scopes needed: `spreadsheets`, `drive.file`.
 
-  subgraph auth [Auth]
-    Login["/login"]
-    Allowlist[(site_allowlist)]
-    Roles[Owner / Staff / Tutor]
-  end
-
-  subgraph db [Postgres]
-    Students[(students)]
-    Classes[(classes)]
-    Enroll[(enrollments)]
-    Sessions[(class_sessions)]
-    Attend[(attendance_records)]
-    Trials[(trial_leads)]
-  end
-
-  subgraph ui [Pages]
-    StudentsP[/students]
-    ClassesP[/classes]
-    EnrollP[/enrollments]
-    AttendP[/attendance]
-    SessionP[/attendance/session]
-    MakeupP[/makeup]
-    TrialsP[/trials]
-    BillingP[/billing]
-  end
-
-  GAuth --> Login --> Roles --> ui
-  GS_Classes --> Classes
-  Students --> Enroll --> Classes
-  Classes --> Sessions
-  Enroll --> SessionP
-  Sessions --> Attend
-  SessionP --> Attend
-  Attend --> MakeupP
-  MakeupP --> Sessions
-  TrialsP --> Students
-  GS_Billing --> BillingP
+**Migration to run if not yet applied:**
+```sql
+-- 0032: add draft invoice status
+ALTER TYPE "public"."invoice_status" ADD VALUE 'draft';
 ```
 
 ---
 
-*Last updated: May 2026 — reflects attendance preservation policy, sidebar UX, canonical time labels, and enrollment-filtered session list.*
+*Last updated: June 2026 — reflects Postgres-native billing, family invoice grouping, draft/sent/void lifecycle, Drive public-link sharing, and WhatsApp integration.*

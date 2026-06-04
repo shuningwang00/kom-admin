@@ -187,6 +187,7 @@ export default function PayrollPlaceholder() {
           <div className="border-b border-zinc-100 px-4 py-3">
             <h2 className="text-sm font-semibold text-zinc-800">Admin hours — {formatMonthLabel(month)}</h2>
           </div>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-100 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -287,6 +288,7 @@ export default function PayrollPlaceholder() {
               </tfoot>
             )}
           </table>
+          </div>
         </div>
       )}
     </div>

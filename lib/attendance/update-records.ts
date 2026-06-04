@@ -8,6 +8,7 @@ import {
 import { isSessionAttendanceSaved } from "@/lib/attendance/attendance-saved";
 import { writeAuditLog } from "@/lib/attendance/audit";
 import { consolidatedSessionIds } from "@/lib/attendance/session-slot-matching";
+import { handleWaivedSession } from "@/lib/billing/invoice-db";
 import type { SessionUser } from "@/lib/auth/config";
 import { getDb } from "@/lib/db/index";
 import { attendanceRecords, classSessions } from "@/lib/db/schema";
@@ -86,6 +87,10 @@ export async function updateAttendanceRecords(params: {
       before: before ?? {},
       after: { status: u.status, makeupNote: u.makeupNote ?? "" },
     });
+
+    if (u.status === "waive") {
+      await handleWaivedSession(existing?.id, targetSessionId, u.studentId);
+    }
 
     const noteForSync = resolvedNote.trim();
     if (u.status === "present" && noteForSync && /MU on/i.test(noteForSync)) {

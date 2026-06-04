@@ -57,48 +57,24 @@ export async function POST(request: Request, { params }: Params) {
 
     const rescheduleNote = body.note?.trim() || "";
 
-    if (newDate === originalDate) {
-      // Only time changed — update in place
-      const [updated] = await db
-        .update(classSessions)
-        .set({
-          timeLabel,
-          rescheduleNote,
-          updatedAt: new Date(),
-        })
-        .where(eq(classSessions.id, id))
-        .returning();
+    const setOriginalDate =
+      newDate !== originalDate && detail.session.originalDate == null
+        ? originalDate
+        : undefined;
 
-      if (!updated) return jsonError("Session not found.", 404);
-
-      await writeAuditLog({
-        actor: user,
-        action: "reschedule_session",
-        entityType: "class_session",
-        entityId: id,
-        before: { scheduledDate: originalDate, timeLabel: detail.session.timeLabel },
-        after: { scheduledDate: newDate, timeLabel: updated.timeLabel, note: updated.rescheduleNote },
-      });
-
-      return jsonOk({ session: updated, newSessionId: null });
-    }
-
-    // Date changed: mark original slot as tombstone, create new session at new date
-    await db
+    const [updated] = await db
       .update(classSessions)
-      .set({ status: "rescheduled_away", updatedAt: new Date() })
-      .where(eq(classSessions.id, id));
-
-    const [newSession] = await db
-      .insert(classSessions)
-      .values({
-        classId: detail.class.id,
+      .set({
         scheduledDate: newDate,
         timeLabel,
         rescheduleNote,
-        reliefTutor: detail.session.reliefTutor ?? "",
+        ...(setOriginalDate !== undefined ? { originalDate: setOriginalDate } : {}),
+        updatedAt: new Date(),
       })
+      .where(eq(classSessions.id, id))
       .returning();
+
+    if (!updated) return jsonError("Session not found.", 404);
 
     await writeAuditLog({
       actor: user,
@@ -106,10 +82,10 @@ export async function POST(request: Request, { params }: Params) {
       entityType: "class_session",
       entityId: id,
       before: { scheduledDate: originalDate, timeLabel: detail.session.timeLabel },
-      after: { scheduledDate: newDate, timeLabel, note: rescheduleNote, newSessionId: newSession.id },
+      after: { scheduledDate: newDate, timeLabel: updated.timeLabel, note: updated.rescheduleNote },
     });
 
-    return jsonOk({ session: newSession, newSessionId: newSession.id });
+    return jsonOk({ session: updated, newSessionId: null });
   } catch (err) {
     const message = dbErrorMessage(err, "Could not reschedule session.");
     const status = message.includes("access")

@@ -299,6 +299,7 @@ export default function ClaimsManager() {
                   Pending review — {pendingClaims.length} claim{pendingClaims.length !== 1 ? "s" : ""}
                 </h2>
               </div>
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-orange-100 text-left text-xs font-medium uppercase tracking-wide text-orange-700">
@@ -372,6 +373,7 @@ export default function ClaimsManager() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -457,6 +459,7 @@ function ClaimsTable({
           All claims — {new Date(month + "-01").toLocaleDateString("en-SG", { month: "long", year: "numeric" })}
         </h2>
       </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-100 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -576,6 +579,7 @@ function ClaimsTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -168,7 +168,7 @@ export async function buildDailyReminder(): Promise<string> {
       .filter(({ class: cls }) => (enrolledCount.get(cls.id) ?? 0) > 0)
       .map(({ session, class: cls }) => {
         const type = formatClassTypeLabel(cls);
-        const timePart = cls.time.trim();
+        const timePart = (session.timeLabel || cls.time).trim();
         const labelParts = [type];
         if (timePart) labelParts.push(timePart);
         if (session.reliefTutor) {

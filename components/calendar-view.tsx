@@ -121,10 +121,19 @@ function SessionChip({ session, showTime = false }: { session: CalendarSessionIt
   const base =
     "rounded px-1.5 py-0.5 text-xs font-medium leading-tight truncate max-w-full";
 
+  const originalDateShort = session.originalDate
+    ? new Date(session.originalDate + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" })
+    : null;
   const title = [
     `${session.classLabel} · ${session.timeLabel} · ${session.expectedCount} student${session.expectedCount === 1 ? "" : "s"}`,
     session.status === "cancelled" ? "Class cancelled" : session.status === "red" ? "Relief needed" : session.status === "relief" ? "Relief cover" : "",
-    session.rescheduleNote && session.sessionStatus !== "cancelled" ? `Rescheduled: ${session.rescheduleNote}` : "",
+    session.rescheduleNote && session.sessionStatus !== "cancelled"
+      ? session.rescheduleNote === "Makeup session"
+        ? "Makeup session"
+        : originalDateShort
+        ? `Rescheduled from ${originalDateShort}: ${session.rescheduleNote}`
+        : `Rescheduled: ${session.rescheduleNote}`
+      : "",
   ].filter(Boolean).join(" · ");
 
   return (
@@ -134,7 +143,9 @@ function SessionChip({ session, showTime = false }: { session: CalendarSessionIt
       title={title}
     >
       {session.rescheduleNote && session.sessionStatus !== "cancelled" && (
-        <span className="mr-1 opacity-70">↺</span>
+        session.rescheduleNote === "Makeup session"
+          ? <span className="mr-1 text-[10px] font-bold opacity-70">MU</span>
+          : <span className="mr-1 opacity-70">↺</span>
       )}
       {session.chipLabel}
       {session.status === "red" && (
@@ -596,7 +607,11 @@ function WeekView({
                         <div className="mt-0.5 text-zinc-400">{s.timeLabel}</div>
                         {s.rescheduleNote && s.sessionStatus !== "cancelled" && (
                           <div className="mt-0.5 text-[10px] font-medium text-amber-800">
-                            ↺ {s.rescheduleNote}
+                            {s.rescheduleNote === "Makeup session"
+                              ? "MU session"
+                              : s.originalDate
+                              ? `↺ was ${new Date(s.originalDate + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" })} · ${s.rescheduleNote}`
+                              : `↺ ${s.rescheduleNote}`}
                           </div>
                         )}
                         <div className="mt-0.5">

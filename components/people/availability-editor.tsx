@@ -302,7 +302,7 @@ export default function AvailabilityEditor() {
       ) : loading ? (
         <p className="py-8 text-sm text-zinc-400">Loading…</p>
       ) : (
-        <div className="max-h-[60vh] overflow-y-auto rounded-xl border border-zinc-200 bg-white">
+        <div className="max-h-[60vh] overflow-x-auto overflow-y-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-zinc-50 text-left text-xs text-zinc-500">
               <tr>
