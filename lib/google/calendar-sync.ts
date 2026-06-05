@@ -11,6 +11,7 @@ import {
   holidayProgrammeParticipants,
   holidayProgrammes,
   holidayProgrammeSessions,
+  siteAllowlist,
   students,
   trialLeads,
 } from "@/lib/db/schema";
@@ -262,6 +263,15 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
   const windowEnd = sgtDatePlus(90);
   const db = getDb();
 
+  // Pre-fetch tutor emails: tutorMatch (uppercase name) → email
+  const allowlistRows = await db
+    .select({ email: siteAllowlist.email, tutorMatch: siteAllowlist.tutorMatch })
+    .from(siteAllowlist);
+  const tutorEmailByMatch = new Map<string, string>();
+  for (const r of allowlistRows) {
+    if (r.tutorMatch) tutorEmailByMatch.set(r.tutorMatch.toUpperCase(), r.email);
+  }
+
   // ── 1. Class sessions ─────────────────────────────────────────────────────
 
   const sessionRows = await db
@@ -398,6 +408,11 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
         ? "Class cancelled."
         : buildSessionDescription(categories, row.originalDate ?? null);
 
+      const sessionAttendees = [
+        row.tutor ? tutorEmailByMatch.get(row.tutor.toUpperCase()) : undefined,
+        row.reliefTutor ? tutorEmailByMatch.get(row.reliefTutor.toUpperCase()) : undefined,
+      ].filter((e): e is string => Boolean(e));
+
       const payload: GCalEventPayload = {
         summary: title,
         description,
@@ -406,6 +421,7 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
         end,
         komSource: "class_session",
         komId: row.sessionId,
+        attendees: sessionAttendees.length > 0 ? sessionAttendees : undefined,
       };
 
       if (!dryRun) {
@@ -511,6 +527,7 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
         end,
         komSource: "admin_shift",
         komId: shift.id,
+        attendees: [shift.staffEmail],
       };
 
       if (!dryRun) {
@@ -637,6 +654,10 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
         fmt("Absent notified", waivedNames),
       ].join("\n");
 
+      const hpTutorEmail = row.tutorName
+        ? tutorEmailByMatch.get(row.tutorName.toUpperCase())
+        : undefined;
+
       const payload: GCalEventPayload = {
         summary: title,
         description,
@@ -644,6 +665,7 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
         end,
         komSource: "holiday_session",
         komId: row.sessionId,
+        attendees: hpTutorEmail ? [hpTutorEmail] : undefined,
       };
 
       if (!dryRun) {

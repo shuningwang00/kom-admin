@@ -13,6 +13,15 @@ export const metadata: Metadata = {
   title: "KOM Billing",
   description: "Knockout Math admin — students, classes, billing",
   robots: { index: false, follow: false },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "KOM",
+  },
+  icons: {
+    apple: "/icon-180.png",
+  },
 };
 
 export default function RootLayout({

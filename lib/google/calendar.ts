@@ -12,6 +12,7 @@ export type GCalEventPayload = {
   end: { dateTime?: string; date?: string; timeZone?: string };
   komSource: KomSource;
   komId: string;
+  attendees?: string[];
 };
 
 async function getCalendarClient() {
@@ -32,6 +33,7 @@ function buildResource(p: GCalEventPayload): calendar_v3.Schema$Event {
     location: p.location,
     start: p.start,
     end: p.end,
+    attendees: p.attendees?.map((email) => ({ email })),
     extendedProperties: {
       private: { komSource: p.komSource, komId: p.komId },
     },
@@ -50,6 +52,7 @@ export async function upsertCalendarEvent(
     const res = await cal.events.update({
       calendarId: cid,
       eventId: gcalEventId,
+      sendUpdates: "none",
       requestBody: resource,
     });
     return res.data.id!;
@@ -57,6 +60,7 @@ export async function upsertCalendarEvent(
 
   const res = await cal.events.insert({
     calendarId: cid,
+    sendUpdates: "all",
     requestBody: resource,
   });
   return res.data.id!;
