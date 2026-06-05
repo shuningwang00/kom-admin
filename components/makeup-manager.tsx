@@ -3,6 +3,7 @@
 import { MAKEUP_CUSTOM_VALUE } from "@/lib/attendance/makeup-constants";
 import type { MakeupClassOption } from "@/lib/attendance/makeup-options";
 import {
+  classDurationMinutes,
   normalizeTimeLabel,
   rescheduleTimeOptions,
 } from "@/lib/scheduling/time-slots";
@@ -294,6 +295,7 @@ export default function MakeupManager() {
     ? rescheduleTimeOptions(
         selectedClass.defaultTime,
         selectedClass.defaultTime,
+        classDurationMinutes(selectedClass.level),
       )
     : [];
 

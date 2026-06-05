@@ -1,5 +1,12 @@
 /** Standard KOM class length */
 export const CLASS_DURATION_MINUTES = 105;
+export const JC_CLASS_DURATION_MINUTES = 120;
+
+export function classDurationMinutes(level: string): number {
+  return /(?:\bjc\b|junior college|\bj[12]\b|h2\s*math)/i.test(level.trim())
+    ? JC_CLASS_DURATION_MINUTES
+    : CLASS_DURATION_MINUTES;
+}
 
 export type ParsedTimeRange = {
   timeLabel: string;
@@ -28,8 +35,8 @@ function formatMinutes(mins: number): string {
   return m ? `${h12}:${String(m).padStart(2, "0")}${mer}` : `${h12}${mer}`;
 }
 
-export function buildTimeLabelFromStart(startMinutes: number): string {
-  const endMinutes = startMinutes + CLASS_DURATION_MINUTES;
+export function buildTimeLabelFromStart(startMinutes: number, durationMinutes = CLASS_DURATION_MINUTES): string {
+  const endMinutes = startMinutes + durationMinutes;
   return `${formatMinutes(startMinutes)} – ${formatMinutes(endMinutes)}`;
 }
 
@@ -146,9 +153,6 @@ export function timeLabelFromStartToken(raw: string): string | null {
 export function normalizeTimeLabel(raw: string): string | null {
   const parsed = parseTimeRange(raw);
   if (!parsed) return null;
-  if (parsed.endMinutes - parsed.startMinutes !== CLASS_DURATION_MINUTES) {
-    return buildTimeLabelFromStart(parsed.startMinutes);
-  }
   return parsed.timeLabel;
 }
 
@@ -177,14 +181,14 @@ export function isWithinCentreHours(timeLabel: string): boolean {
   );
 }
 
-export function listStandardTimeSlots(): string[] {
+export function listStandardTimeSlots(durationMinutes = CLASS_DURATION_MINUTES): string[] {
   const slots: string[] = [];
   for (
     let start = CENTRE_OPEN_START_MINUTES;
-    start + CLASS_DURATION_MINUTES <= CENTRE_CLOSE_MINUTES;
+    start + durationMinutes <= CENTRE_CLOSE_MINUTES;
     start += SLOT_STEP
   ) {
-    slots.push(buildTimeLabelFromStart(start));
+    slots.push(buildTimeLabelFromStart(start, durationMinutes));
   }
   return slots;
 }
@@ -194,6 +198,7 @@ export type TimeSlotOption = { value: string; label: string };
 export function rescheduleTimeOptions(
   classDefaultTime: string,
   sessionTimeLabel: string,
+  durationMinutes = CLASS_DURATION_MINUTES,
 ): TimeSlotOption[] {
   const byValue = new Map<string, string>();
 
@@ -211,7 +216,7 @@ export function rescheduleTimeOptions(
     add(classDefaultTime, "Class usual time", true);
   }
 
-  for (const slot of listStandardTimeSlots()) {
+  for (const slot of listStandardTimeSlots(durationMinutes)) {
     if (!byValue.has(slot)) byValue.set(slot, slot);
   }
 

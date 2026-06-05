@@ -329,6 +329,22 @@ Business logic lives in `lib/`, not in route handlers.
 
 ---
 
+## Schedule changes (class weekday/time edits)
+
+Changing a class's weekday or time **does not automatically update existing session rows** — sessions are generated once and stored with a fixed `scheduledDate`.
+
+**Workflow when a class moves to a different day (e.g. Tuesdays → Mondays):**
+
+1. Edit the class weekday in the Classes page.
+2. Future unattended sessions on the old day are **automatically cancelled** (any `scheduled` session after today with no `present`/`makeup_done` attendance records).
+3. **Regenerate sessions** for the affected months — new sessions are created on the new weekday. The old (now cancelled) sessions are skipped.
+
+Sessions with existing attendance records are never auto-cancelled — cancel those manually if needed.
+
+Sessions are only visible in the attendance view for classes that have at least one active enrolled student. Generating sessions for a class with no enrollments works and is safe — sessions exist in the DB but are hidden until the first student is enrolled.
+
+---
+
 ## Common pitfalls
 
 | Symptom | Cause / Fix |
@@ -340,6 +356,9 @@ Business logic lives in `lib/`, not in route handlers.
 | Reg fee missing | Check enrollment `started_at` ≥ 2026-05-01 and no prior non-voided invoice has a reg fee line item for this student |
 | Wrong M/U time in hub | Makeup note missing custom time — add `· 2pm – 3:45pm` style to note |
 | 01-of-next-month leaking into current invoice | Session fetch uses `lt(scheduledDate, monthEnd)` not `lte` — already fixed |
+| Old sessions still showing after weekday change | Auto-cancel only fires on save — manually cancel any sessions with existing attendance records |
+| New weekday sessions missing after schedule change | Must regenerate sessions for affected months after changing class weekday |
+| Trial student enrolled then drops out without paying | Void the invoice + end the enrollment (set an end date) — prevents balance carrying forward and stops future billing |
 
 ---
 

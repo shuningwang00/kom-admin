@@ -77,19 +77,20 @@ export async function buildDailyReminder(): Promise<string> {
       shiftTimeByEmail.set(s.staffEmail, t);
     }
 
-    const handles = allowlistRows
-      .filter((r) => r.telegramHandle)
-      .map((r) => `@${r.telegramHandle}`);
-    if (handles.length > 0) {
-      const shiftTime = allowlistRows
-        .filter((r) => r.telegramHandle)
-        .map((r) => shiftTimeByEmail.get(r.email))
-        .find(Boolean);
-      mentionLine = `Heads up ${handles.join(", ")} — you're on duty tomorrow${shiftTime ? ` (${shiftTime})` : ""}.`;
+    const withHandles = allowlistRows.filter((r) => r.telegramHandle);
+    if (withHandles.length > 0) {
+      const parts = withHandles.map((r) => {
+        const t = shiftTimeByEmail.get(r.email);
+        return t ? `@${r.telegramHandle} (${t})` : `@${r.telegramHandle}`;
+      });
+      mentionLine = `Heads up ${parts.join(", ")} — you're on duty tomorrow.`;
     } else {
-      const names = shifts.map((s) => s.staffName || s.staffEmail.split("@")[0]);
-      const shiftTime = shifts.length ? `${fmt12h(shifts[0].startTime)} – ${fmt12h(shifts[0].endTime)}` : "";
-      mentionLine = `Heads up ${[...new Set(names)].join(", ")} — you're on duty tomorrow${shiftTime ? ` (${shiftTime})` : ""}.`;
+      const parts = shifts.map((s) => {
+        const name = s.staffName || s.staffEmail.split("@")[0];
+        const t = `${fmt12h(s.startTime)} – ${fmt12h(s.endTime)}`;
+        return `${name} (${t})`;
+      });
+      mentionLine = `Heads up ${parts.join(", ")} — you're on duty tomorrow.`;
     }
   } else {
     mentionLine = `No admin on duty tomorrow.`;
@@ -351,8 +352,7 @@ export async function buildDailyReminder(): Promise<string> {
     eventsSection,
     actionSection,
     upcomingSection,
-    "",
-    mentionLine,
+    "\n" + mentionLine,
   ]
     .filter((s) => s !== "")
     .join("\n")

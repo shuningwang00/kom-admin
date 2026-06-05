@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { listStandardTimeSlots, normalizeTimeLabel } from "@/lib/scheduling/time-slots";
+import { classDurationMinutes, listStandardTimeSlots, normalizeTimeLabel } from "@/lib/scheduling/time-slots";
 
 type Klass = {
   id: string;
@@ -181,78 +181,81 @@ function LevelBadge({ level }: { level: string }) {
   );
 }
 
-const CLASSROOM_OPTIONS = [
-  { value: "", label: "—" },
-  { value: "c1", label: "C1" },
-  { value: "c2", label: "C2" },
-];
+const GRID_START_HOUR = 9;
+const GRID_END_HOUR = 21;
+const HOUR_PX = 120;
+const MIN_PX = HOUR_PX / 60;
+const LANE_H = 76;
 
-function ClassCard({
+function formatHourLabel(h: number): string {
+  if (h === 0) return "12am";
+  if (h === 12) return "12pm";
+  return h < 12 ? `${h}am` : `${h - 12}pm`;
+}
+
+function TimeGridCard({
   cls,
+  left,
+  width,
   canEdit,
   onEdit,
   onSetClassroom,
 }: {
   cls: Klass;
+  left: number;
+  width: number;
   canEdit: boolean;
   onEdit: (c: Klass) => void;
   onSetClassroom: (c: Klass, classroom: string) => void;
 }) {
   const inactive = !cls.isActive;
+  const lv = inferLevel(cls.label, cls.level);
+  const colorMap: Record<string, { bg: string; border: string; text: string }> = {
+    p5:   { bg: "bg-sky-50",    border: "border-sky-200",    text: "text-sky-900" },
+    p6:   { bg: "bg-sky-50",    border: "border-sky-200",    text: "text-sky-900" },
+    sec1: { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-900" },
+    sec2: { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-900" },
+    sec3: { bg: "bg-amber-50",  border: "border-amber-200",  text: "text-amber-900" },
+    sec4: { bg: "bg-amber-50",  border: "border-amber-200",  text: "text-amber-900" },
+    jc1:  { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-900" },
+    jc2:  { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-900" },
+  };
+  const { bg, border, text } = colorMap[lv] ?? { bg: "bg-zinc-50", border: "border-zinc-200", text: "text-zinc-900" };
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5 text-sm transition-opacity ${inactive ? "border-zinc-200 bg-zinc-50 opacity-60" : "border-zinc-200 bg-white shadow-sm"}`}>
-      <div className="flex items-center gap-1">
-        <span className={`flex-1 font-semibold leading-snug ${inactive ? "text-zinc-500" : "text-zinc-900"}`}>
-          {cls.label}
-        </span>
-      </div>
-      {cls.tutor && <p className="mt-0.5 text-xs text-zinc-500">{cls.tutor}</p>}
-      {(cls.isFull || inactive) && (
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {cls.isFull && (
-            <span className="inline-flex rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">FULL</span>
-          )}
-          {inactive && (
-            <span className="inline-flex rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">INACTIVE</span>
-          )}
-        </div>
+    <div
+      className={`absolute overflow-hidden rounded-md border px-1.5 py-1 transition-opacity ${
+        inactive ? "border-zinc-200 bg-zinc-50 opacity-50" : `${bg} ${border} shadow-sm`
+      }`}
+      style={{ left: left + 2, top: 4, bottom: 4, width: Math.max(width - 4, 20) }}
+    >
+      <p className={`text-[11px] font-semibold leading-tight truncate ${inactive ? "text-zinc-400" : text}`}>
+        {cls.label}
+      </p>
+      <p className="text-[9px] leading-tight truncate text-zinc-500">{cls.time}</p>
+      {cls.tutor && (
+        <p className="text-[9px] leading-tight truncate text-zinc-400">{cls.tutor}</p>
+      )}
+      {cls.isFull && (
+        <span className="inline-flex rounded-full bg-red-100 px-1 py-px text-[9px] font-semibold text-red-700">FULL</span>
       )}
       {canEdit && (
-        <div className="mt-1.5 flex items-center gap-0.5">
+        <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
           {cls.classroom ? (
             <button
               type="button"
               onClick={() => onSetClassroom(cls, "")}
-              className="inline-flex items-center gap-0.5 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-200"
+              className="inline-flex items-center gap-0.5 rounded bg-orange-100 px-1 py-px text-[9px] font-semibold text-orange-700 hover:bg-orange-200"
             >
-              {cls.classroom.toUpperCase()}
-              <span className="text-orange-400">×</span>
+              {cls.classroom.toUpperCase()}<span className="text-orange-400">×</span>
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => onSetClassroom(cls, "c1")}
-                className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
-              >
-                C1
-              </button>
-              <button
-                type="button"
-                onClick={() => onSetClassroom(cls, "c2")}
-                className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
-              >
-                C2
-              </button>
+              <button type="button" onClick={() => onSetClassroom(cls, "c1")} className="rounded px-1 py-px text-[9px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200">C1</button>
+              <button type="button" onClick={() => onSetClassroom(cls, "c2")} className="rounded px-1 py-px text-[9px] font-semibold bg-zinc-100 text-zinc-500 hover:bg-zinc-200">C2</button>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => onEdit(cls)}
-            className="ml-0.5 rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-            title="Edit"
-          >
+          <button type="button" onClick={() => onEdit(cls)} className="rounded p-px text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700" title="Edit">
             <PencilIcon />
           </button>
         </div>
@@ -274,9 +277,7 @@ function GridView({
   onEdit: (c: Klass) => void;
   onSetClassroom: (c: Klass, classroom: string) => void;
 }) {
-  const visibleDays = weekendsOnly
-    ? (["sat", "sun"] as DayKey[])
-    : DAY_ORDER;
+  const visibleDays = weekendsOnly ? (["sat", "sun"] as DayKey[]) : DAY_ORDER;
 
   if (classes.length === 0) {
     return (
@@ -286,32 +287,43 @@ function GridView({
     );
   }
 
-  const allStartMins = [
-    ...new Set(
-      classes
-        .filter((c) => { const d = DAY_MAP[c.weekday]; return d && visibleDays.includes(d); })
-        .map((c) => parseTime(c.time).startMinutes)
-        .filter((m) => m > 0),
-    ),
-  ].sort((a, b) => a - b);
+  const allParsed = classes.map((c) => parseTime(c.time)).filter((t) => t.startMinutes > 0);
+  const startHour = allParsed.length > 0
+    ? Math.min(GRID_START_HOUR, Math.floor(Math.min(...allParsed.map((t) => t.startMinutes)) / 60))
+    : GRID_START_HOUR;
+  const endHour = GRID_END_HOUR;
+  const totalHours = endHour - startHour;
+  const gridW = totalHours * HOUR_PX;
+  const startMin = startHour * 60;
 
-  const timeLabelFor = (startMin: number) =>
-    classes.find((x) => parseTime(x.time).startMinutes === startMin)?.time ?? "";
-
-  const cardProps = { canEdit, onEdit, onSetClassroom };
+  function timeToLeft(m: number) { return (m - startMin) * MIN_PX; }
+  function durToWidth(d: number) { return d * MIN_PX; }
 
   return (
     <div className="overflow-auto rounded-xl border border-zinc-200 bg-white" style={{ maxHeight: "calc(100vh - 220px)" }}>
-      <table className="w-full border-collapse text-sm">
+      <table className="border-collapse" style={{ width: 56 + 32 + gridW }}>
         <thead>
           <tr className="border-b-2 border-zinc-200 bg-zinc-50">
-            <th className="sticky left-0 top-0 z-10 w-14 border-r border-zinc-200 bg-zinc-50 px-2 py-2" />
-            <th className="sticky left-14 top-0 z-10 w-8 border-r border-zinc-200 bg-zinc-50 px-2 py-2" />
-            {allStartMins.map((m) => (
-              <th key={m} className="sticky top-0 z-[9] min-w-[9rem] border-r border-zinc-200 bg-zinc-50 px-2 py-2.5 text-left text-xs font-medium whitespace-nowrap text-zinc-600 last:border-r-0">
-                {timeLabelFor(m)}
-              </th>
-            ))}
+            <th className="sticky left-0 top-0 z-20 w-14 border-r border-zinc-200 bg-zinc-50 p-0" />
+            <th className="sticky left-14 top-0 z-20 w-8 border-r border-zinc-200 bg-zinc-50 p-0" />
+            <th className="sticky top-0 z-[9] bg-zinc-50 p-0">
+              <div className="relative select-none" style={{ width: gridW, height: 36 }}>
+                {Array.from({ length: totalHours }, (_, i) => {
+                  const h = startHour + i;
+                  return (
+                    <div key={h} className="absolute top-0 bottom-0" style={{ left: i * HOUR_PX }}>
+                      <div className="absolute inset-y-0 border-l border-zinc-200" />
+                      <span className="absolute top-1 left-1.5 text-[10px] font-medium text-zinc-500 whitespace-nowrap">
+                        {formatHourLabel(h)}
+                      </span>
+                      {[1, 2, 3].map((q) => (
+                        <div key={q} className="absolute inset-y-0 border-l border-zinc-100" style={{ left: q * 30 }} />
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -320,69 +332,64 @@ function GridView({
             const c1 = daySessions.filter((c) => c.classroom === "c1");
             const c2 = daySessions.filter((c) => c.classroom === "c2");
             const unassigned = daySessions.filter((c) => !c.classroom);
-            const hasUnassigned = unassigned.length > 0;
-            const rowSpan = 2 + (hasUnassigned ? 1 : 0);
-
-            const cellFor = (pool: Klass[], m: number) =>
-              pool.filter((c) => parseTime(c.time).startMinutes === m);
+            const lanes = [
+              { key: "c1", label: "C1", items: c1, laneBg: "bg-blue-50", laneText: "text-blue-400" },
+              { key: "c2", label: "C2", items: c2, laneBg: "bg-violet-50", laneText: "text-violet-400" },
+              ...(unassigned.length > 0
+                ? [{ key: "un", label: "—", items: unassigned, laneBg: "bg-zinc-50", laneText: "text-zinc-300" }]
+                : []),
+            ];
 
             return (
               <Fragment key={day}>
-                {/* C1 row */}
-                <tr className="border-b border-zinc-100">
-                  <td
-                    rowSpan={rowSpan}
-                    className="sticky left-0 z-[8] w-14 border-r border-zinc-200 bg-zinc-50 px-2 py-2 align-middle"
+                {lanes.map(({ key, label, items, laneBg, laneText }, laneIdx) => (
+                  <tr
+                    key={key}
+                    className={laneIdx === lanes.length - 1 ? "border-b-2 border-zinc-200" : "border-b border-zinc-100"}
                   >
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-xs font-bold text-zinc-700">{DAY_LABELS[day].slice(0, 3)}</span>
-                      <span className="text-[10px] text-zinc-400">{daySessions.length}</span>
-                    </div>
-                  </td>
-                  <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-blue-50 px-2 py-1.5 align-middle whitespace-nowrap">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">C1</span>
-                  </td>
-                  {allStartMins.map((m) => {
-                    const cell = cellFor(c1, m);
-                    return (
-                      <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
-                        {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
+                    {laneIdx === 0 && (
+                      <td
+                        rowSpan={lanes.length}
+                        className="sticky left-0 z-[8] w-14 border-r border-zinc-200 bg-zinc-50 align-middle px-1 py-0"
+                      >
+                        <div className="flex flex-col items-center justify-center gap-0.5">
+                          <span className="text-xs font-bold text-zinc-700">{DAY_LABELS[day].slice(0, 3)}</span>
+                          <span className="text-[10px] text-zinc-400">{daySessions.length}</span>
+                        </div>
                       </td>
-                    );
-                  })}
-                </tr>
-
-                {/* C2 row */}
-                <tr className={hasUnassigned ? "border-b border-zinc-100" : "border-b-2 border-zinc-200"}>
-                  <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-violet-50 px-2 py-1.5 align-middle whitespace-nowrap">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-violet-400">C2</span>
-                  </td>
-                  {allStartMins.map((m) => {
-                    const cell = cellFor(c2, m);
-                    return (
-                      <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
-                        {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
-                      </td>
-                    );
-                  })}
-                </tr>
-
-                {/* Unassigned row */}
-                {hasUnassigned && (
-                  <tr className="border-b-2 border-zinc-200">
-                    <td className="sticky left-14 z-[8] w-8 border-r border-zinc-200 bg-zinc-50 px-2 py-1.5 align-middle whitespace-nowrap">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">—</span>
+                    )}
+                    <td className={`sticky left-14 z-[8] w-8 border-r border-zinc-200 px-1 align-middle ${laneBg}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${laneText}`}>{label}</span>
                     </td>
-                    {allStartMins.map((m) => {
-                      const cell = cellFor(unassigned, m);
-                      return (
-                        <td key={m} className="border-r border-zinc-100 p-1.5 align-top last:border-r-0">
-                          {cell.length > 0 && <div className="space-y-1.5">{cell.map((cls) => <ClassCard key={cls.id} cls={cls} {...cardProps} />)}</div>}
-                        </td>
-                      );
-                    })}
+                    <td className="p-0">
+                      <div className="relative" style={{ width: gridW, height: LANE_H }}>
+                        {Array.from({ length: totalHours }, (_, i) => (
+                          <Fragment key={i}>
+                            <div className="absolute inset-y-0 border-l border-zinc-100" style={{ left: i * HOUR_PX }} />
+                            <div className="absolute inset-y-0 border-l border-zinc-50" style={{ left: i * HOUR_PX + 30 }} />
+                            <div className="absolute inset-y-0 border-l border-zinc-50" style={{ left: i * HOUR_PX + 60 }} />
+                            <div className="absolute inset-y-0 border-l border-zinc-50" style={{ left: i * HOUR_PX + 90 }} />
+                          </Fragment>
+                        ))}
+                        {items.map((cls) => {
+                          const { startMinutes, endMinutes } = parseTime(cls.time);
+                          if (!startMinutes && !endMinutes) return null;
+                          return (
+                            <TimeGridCard
+                              key={cls.id}
+                              cls={cls}
+                              left={timeToLeft(startMinutes)}
+                              width={durToWidth(endMinutes - startMinutes)}
+                              canEdit={canEdit}
+                              onEdit={onEdit}
+                              onSetClassroom={onSetClassroom}
+                            />
+                          );
+                        })}
+                      </div>
+                    </td>
                   </tr>
-                )}
+                ))}
               </Fragment>
             );
           })}
@@ -506,12 +513,12 @@ function ClassForm({
   const [form, setForm] = useState<FormState>(initial);
 
   const timeOptions = useMemo(() => {
-    const slots = listStandardTimeSlots();
+    const slots = listStandardTimeSlots(classDurationMinutes(form.level));
     if (form.time && !slots.includes(form.time)) {
       return [form.time, ...slots];
     }
     return slots;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form.level, form.time]);
 
   const tutorSelectOptions = useMemo(() => {
     if (form.tutor && !tutorOptions.includes(form.tutor)) {

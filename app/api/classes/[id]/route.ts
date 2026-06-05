@@ -1,12 +1,72 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMutateClasses } from "@/lib/auth/access";
 import { getDb } from "@/lib/db/index";
-import { classes, weekdayEnum } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { attendanceRecords, classes, classSessions, weekdayEnum } from "@/lib/db/schema";
+import { and, eq, gt, inArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 const WEEKDAYS = weekdayEnum.enumValues;
+
+const WEEKDAY_DOW: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6, other: -1,
+};
+
+function sgtToday(): string {
+  const now = new Date();
+  return new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+async function cancelOldWeekdaySessions(
+  db: ReturnType<typeof getDb>,
+  classId: string,
+  oldWeekday: string,
+): Promise<number> {
+  const targetDow = WEEKDAY_DOW[oldWeekday] ?? -1;
+  if (targetDow === -1) return 0;
+
+  const futureSessions = await db
+    .select({ id: classSessions.id, scheduledDate: classSessions.scheduledDate })
+    .from(classSessions)
+    .where(
+      and(
+        eq(classSessions.classId, classId),
+        eq(classSessions.status, "scheduled"),
+        gt(classSessions.scheduledDate, sgtToday()),
+      ),
+    );
+
+  if (futureSessions.length === 0) return 0;
+
+  const sessionIds = futureSessions.map((s) => s.id);
+
+  const attendedRows = await db
+    .select({ sessionId: attendanceRecords.sessionId })
+    .from(attendanceRecords)
+    .where(
+      and(
+        inArray(attendanceRecords.sessionId, sessionIds),
+        inArray(attendanceRecords.status, ["present", "makeup_done"]),
+      ),
+    );
+
+  const attendedSet = new Set(attendedRows.map((r) => r.sessionId));
+
+  const toCancel = futureSessions.filter((s) => {
+    if (attendedSet.has(s.id)) return false;
+    return new Date(s.scheduledDate + "T00:00:00Z").getUTCDay() === targetDow;
+  });
+
+  for (const session of toCancel) {
+    await db
+      .update(classSessions)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(classSessions.id, session.id));
+  }
+
+  return toCancel.length;
+}
 
 export async function PATCH(
   request: Request,
@@ -16,6 +76,7 @@ export async function PATCH(
     await assertCanMutateClasses();
     const { id } = await params;
     const body = (await request.json()) as Record<string, unknown>;
+    const db = getDb();
 
     const updates: Partial<typeof classes.$inferInsert> = {};
     if (typeof body.level === "string") updates.level = body.level.trim();
@@ -35,8 +96,7 @@ export async function PATCH(
 
     // Recompute label when level or subject changes
     if (updates.level !== undefined || updates.subject !== undefined) {
-      const db2 = getDb();
-      const [existing] = await db2.select().from(classes).where(eq(classes.id, id));
+      const [existing] = await db.select().from(classes).where(eq(classes.id, id));
       const level = updates.level ?? existing?.level ?? "";
       const subject = updates.subject ?? existing?.subject ?? "";
       updates.label = [level, subject].filter(Boolean).join(" ") || (existing?.label ?? "");
@@ -44,9 +104,17 @@ export async function PATCH(
 
     if (Object.keys(updates).length === 0) return jsonError("No fields to update.");
 
+    // Auto-cancel future sessions on the old weekday when weekday changes
+    let cancelledSessions = 0;
+    if (updates.weekday !== undefined) {
+      const [existing] = await db.select({ weekday: classes.weekday }).from(classes).where(eq(classes.id, id));
+      if (existing && existing.weekday !== updates.weekday) {
+        cancelledSessions = await cancelOldWeekdaySessions(db, id, existing.weekday);
+      }
+    }
+
     updates.updatedAt = new Date();
 
-    const db = getDb();
     const [updated] = await db
       .update(classes)
       .set(updates)
@@ -54,8 +122,9 @@ export async function PATCH(
       .returning();
 
     if (!updated) return jsonError("Class not found.", 404);
-    return jsonOk({ class: updated });
+    return jsonOk({ class: updated, cancelledSessions });
   } catch (err) {
+    console.error("[PATCH /api/classes/[id]]", err);
     const message = err instanceof Error ? err.message : "Failed";
     return jsonError(message, message.includes("owner") || message.includes("admin") ? 403 : 500);
   }

@@ -27,6 +27,7 @@ import { normalizeReliefForStorage } from "@/lib/tutors/relief-form";
 import { MAKEUP_CUSTOM_VALUE } from "@/lib/attendance/makeup-constants";
 import type { MakeupClassOption } from "@/lib/attendance/makeup-options";
 import {
+  classDurationMinutes,
   normalizeTimeLabel,
   rescheduleTimeOptions,
 } from "@/lib/scheduling/time-slots";
@@ -481,6 +482,7 @@ export default function SessionAttendancePanel({
     ? rescheduleTimeOptions(
         selectedMakeupClass.defaultTime,
         selectedMakeupClass.defaultTime,
+        classDurationMinutes(selectedMakeupClass.level),
       )
     : [];
 
@@ -621,7 +623,7 @@ export default function SessionAttendancePanel({
   }
 
   const timeSlotOptions = detail
-    ? rescheduleTimeOptions(detail.class.time, detail.session.timeLabel)
+    ? rescheduleTimeOptions(detail.class.time, detail.session.timeLabel, classDurationMinutes(detail.class.level))
     : [];
 
   async function rescheduleSession(e: React.FormEvent) {

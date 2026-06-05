@@ -13,6 +13,7 @@ import { eq, isNull } from "drizzle-orm";
 export type MakeupClassOption = {
   classId: string;
   label: string;
+  level: string;
   weekday: Weekday;
   defaultDate: string;
   defaultTime: string;
@@ -83,6 +84,7 @@ export async function listMakeupPeerClasses(
     options.push({
       classId: c.id,
       label: shortClassSlotLabel(c),
+      level: c.level,
       weekday: c.weekday,
       defaultDate,
       defaultTime: defaultTimeForClass(c.time),
@@ -99,6 +101,7 @@ export async function listMakeupPeerClasses(
   const sourceClass: MakeupClassOption = {
     classId: source.id,
     label: shortClassSlotLabel(source),
+    level: source.level,
     weekday: source.weekday,
     defaultDate: sourceDefaultDate,
     defaultTime: defaultTimeForClass(source.time),

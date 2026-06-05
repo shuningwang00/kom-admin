@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -126,7 +127,7 @@ export const classes = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("classes_label_weekday_uidx").on(t.label, t.weekday),
+    uniqueIndex("classes_label_weekday_uidx").on(t.label, t.weekday).where(sql`is_active = true`),
     index("classes_tutor_idx").on(t.tutor),
   ],
 );
@@ -254,6 +255,7 @@ export const classSessions = pgTable(
     originalDate: date("original_date"),
     /** When set, this tutor covers the session instead of class.tutor */
     reliefTutor: text("relief_tutor").notNull().default(""),
+    gcalEventId: text("gcal_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -375,6 +377,7 @@ export const adminRosterShift = pgTable(
     endTime: text("end_time").notNull(),
     published: boolean("published").notNull().default(false),
     createdBy: text("created_by").notNull().default(""),
+    gcalEventId: text("gcal_event_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -579,6 +582,7 @@ export const calendarEvents = pgTable(
     startTime: text("start_time").notNull().default(""),
     endTime: text("end_time").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    gcalEventId: text("gcal_event_id"),
     createdBy: text("created_by").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1,6 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/api/json";
 import {
-  hasStaffPrivileges,
   isOwner,
   requireEffectiveUser,
 } from "@/lib/auth/access";
@@ -40,10 +39,6 @@ async function assertCanManage(
   const myEmail = user.email.trim().toLowerCase();
   if (ownerEmail !== myEmail) {
     return { ok: false, message: "You can only change your own time off." };
-  }
-
-  if (!hasStaffPrivileges(user) && user.role !== "tutor") {
-    return { ok: false, message: "Forbidden" };
   }
 
   return { ok: true };
