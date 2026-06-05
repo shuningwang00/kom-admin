@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/sync-gcal",
-      "schedule": "17 * * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }

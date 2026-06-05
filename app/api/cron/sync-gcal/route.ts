@@ -3,6 +3,7 @@ import { syncToGoogleCalendar } from "@/lib/google/calendar-sync";
 
 export const dynamic = "force-dynamic";
 
+/** Vercel Cron daily at 12:00 UTC (20:00 SGT). */
 export async function GET(request: Request) {
   try {
     const auth = request.headers.get("authorization");
