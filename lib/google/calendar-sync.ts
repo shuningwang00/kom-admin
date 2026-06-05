@@ -7,13 +7,17 @@ import {
   classSessions,
   classes,
   enrollments,
+  holidayProgrammeAttendance,
+  holidayProgrammeParticipants,
+  holidayProgrammes,
+  holidayProgrammeSessions,
   students,
   trialLeads,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { rosterForClassOnDate } from "@/lib/enrollments/roster-query";
 import { filterRosterForSessionDate } from "@/lib/enrollments/eligibility";
-import { isMuLessonAttendee, isWaivedOnSession } from "@/lib/attendance/makeup-session-rules";
+import { isMissedLessonWithScheduledMakeup, isMuLessonAttendee, isWaivedOnSession } from "@/lib/attendance/makeup-session-rules";
 import {
   deleteCalendarEvent,
   listKomEvents,
@@ -25,6 +29,7 @@ export type SyncResult = {
   sessions: { synced: number; errors: number };
   events: { synced: number; errors: number };
   shifts: { synced: number; errors: number };
+  holidaySessions: { synced: number; errors: number };
   orphansDeleted: number;
   dryRun: boolean;
 };
@@ -86,6 +91,10 @@ function buildAllDayPayload(date: string): { start: GCalEventPayload["start"]; e
   d.setUTCDate(d.getUTCDate() + 1);
   const nextDay = d.toISOString().slice(0, 10);
   return { start: { date }, end: { date: nextDay } };
+}
+
+function firstName(full: string): string {
+  return full.split(" ")[0] ?? full;
 }
 
 /** Format date like "Mon 02/06" for display in descriptions */
@@ -172,6 +181,12 @@ async function computeStudentCategories(
       continue;
     }
 
+    // Missed this session; makeup booked on a different date
+    if (isMissedLessonWithScheduledMakeup(scheduledDate, status as never, makeupNote)) {
+      result.absentNotified.push(name);
+      continue;
+    }
+
     // Trial day
     if (r.trialAttendedAt && r.trialAttendedAt.slice(0, 10) === scheduledDate) {
       result.trial.push(name);
@@ -212,7 +227,7 @@ function buildSessionDescription(
 
   const fmt = (label: string, names: string[]) => {
     if (names.length === 0) return `${label} (0)`;
-    return `${label} (${names.length}): ${names.join(", ")}`;
+    return `${label} (${names.length}): ${names.map(firstName).join(", ")}`;
   };
 
   lines.push(fmt("Expected", categories.expected));
@@ -238,6 +253,7 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
     sessions: { synced: 0, errors: 0 },
     events: { synced: 0, errors: 0 },
     shifts: { synced: 0, errors: 0 },
+    holidaySessions: { synced: 0, errors: 0 },
     orphansDeleted: 0,
     dryRun,
   };
@@ -330,30 +346,53 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
       const isCancelled =
         row.status === "cancelled" || row.status === "rescheduled_away";
 
-      const categories = isCancelled
-        ? { expected: [], trial: [], makeup: [], waived: [], absentNotified: [] }
-        : await computeStudentCategories(
-            db,
-            row.classId,
-            row.sessionId,
-            row.scheduledDate,
-            studentNames,
-            trialNames,
-          );
+      // Always compute categories — needed to decide whether to skip, even for cancelled sessions.
+      const categories = await computeStudentCategories(
+        db,
+        row.classId,
+        row.sessionId,
+        row.scheduledDate,
+        studentNames,
+        trialNames,
+      );
 
       // Add trial leads to trial list
       for (const [, name] of trialNames) {
         if (!categories.trial.includes(name)) categories.trial.push(name);
       }
 
-      const totalExpected =
-        categories.expected.length + categories.trial.length + categories.makeup.length;
+      // Skip sessions with no enrollments at all (including cancelled empty classes)
+      const hasAnyStudents =
+        categories.expected.length +
+          categories.trial.length +
+          categories.makeup.length +
+          categories.waived.length +
+          categories.absentNotified.length >
+        0;
 
-      const tutor = row.reliefTutor || row.tutor;
+      if (!hasAnyStudents) {
+        if (!dryRun && row.gcalEventId) {
+          await deleteCalendarEvent(row.gcalEventId);
+          await db
+            .update(classSessions)
+            .set({ gcalEventId: null })
+            .where(eq(classSessions.id, row.sessionId));
+        }
+        continue;
+      }
+
       let title = row.label;
-      if (tutor) title += ` — ${tutor}`;
-      if (isCancelled) title = `[CANCELLED] ${title}`;
-      else if (totalExpected === 0) title = `[NO STUDENTS] ${title}`;
+      if (row.reliefTutor) {
+        title += ` — ${row.reliefTutor} (Relief)`;
+      } else if (row.tutor) {
+        title += ` — ${row.tutor}`;
+      }
+      if (isCancelled) {
+        title = `[CANCELLED] ${title}`;
+      } else if (categories.expected.length === 0 && categories.trial.length === 0) {
+        // All enrolled students are waived or doing makeup
+        title = `[NO STUDENTS] ${title}`;
+      }
 
       const description = isCancelled
         ? "Class cancelled."
@@ -490,7 +529,140 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
     }
   }
 
-  // ── 4. Orphan cleanup ─────────────────────────────────────────────────────
+  // ── 4. Holiday programme sessions ─────────────────────────────────────────
+
+  const hpSessionRows = await db
+    .select({
+      sessionId: holidayProgrammeSessions.id,
+      programmeId: holidayProgrammeSessions.programmeId,
+      scheduledDate: holidayProgrammeSessions.scheduledDate,
+      timeLabel: holidayProgrammeSessions.timeLabel,
+      tutorName: holidayProgrammeSessions.tutorName,
+      gcalEventId: holidayProgrammeSessions.gcalEventId,
+      programmeName: holidayProgrammes.name,
+    })
+    .from(holidayProgrammeSessions)
+    .innerJoin(holidayProgrammes, eq(holidayProgrammeSessions.programmeId, holidayProgrammes.id))
+    .where(
+      and(
+        gte(holidayProgrammeSessions.scheduledDate, windowStart),
+        lte(holidayProgrammeSessions.scheduledDate, windowEnd),
+        eq(holidayProgrammes.isActive, true),
+      ),
+    );
+
+  const allProgrammeIds = [...new Set(hpSessionRows.map((r) => r.programmeId))];
+
+  const participantRows =
+    allProgrammeIds.length > 0
+      ? await db
+          .select({
+            programmeId: holidayProgrammeParticipants.programmeId,
+            id: holidayProgrammeParticipants.id,
+            name: holidayProgrammeParticipants.name,
+            studentId: holidayProgrammeParticipants.studentId,
+          })
+          .from(holidayProgrammeParticipants)
+          .where(
+            and(
+              inArray(holidayProgrammeParticipants.programmeId, allProgrammeIds),
+              inArray(holidayProgrammeParticipants.status, ["active", "converted"]),
+            ),
+          )
+      : [];
+
+  const participantsByProgramme = new Map<
+    string,
+    { id: string; name: string; studentId: string | null }[]
+  >();
+  for (const p of participantRows) {
+    const list = participantsByProgramme.get(p.programmeId) ?? [];
+    list.push({ id: p.id, name: p.name, studentId: p.studentId });
+    participantsByProgramme.set(p.programmeId, list);
+  }
+
+  const allHpSessionIds = hpSessionRows.map((r) => r.sessionId);
+  const hpWaivedRows =
+    allHpSessionIds.length > 0
+      ? await db
+          .select({
+            sessionId: holidayProgrammeAttendance.sessionId,
+            participantId: holidayProgrammeAttendance.participantId,
+          })
+          .from(holidayProgrammeAttendance)
+          .where(
+            and(
+              inArray(holidayProgrammeAttendance.sessionId, allHpSessionIds),
+              eq(holidayProgrammeAttendance.status, "waive"),
+            ),
+          )
+      : [];
+
+  const waivedBySession = new Map<string, Set<string>>();
+  for (const r of hpWaivedRows) {
+    const set = waivedBySession.get(r.sessionId) ?? new Set<string>();
+    set.add(r.participantId);
+    waivedBySession.set(r.sessionId, set);
+  }
+
+  for (const row of hpSessionRows) {
+    try {
+      const parsed = parseTimeRange(row.timeLabel);
+      if (!parsed) continue;
+
+      const { start, end } = buildDateTimePayload(
+        row.scheduledDate,
+        parsed.startH,
+        parsed.startM,
+        parsed.endH,
+        parsed.endM,
+      );
+
+      const participants = participantsByProgramme.get(row.programmeId) ?? [];
+      const waived = waivedBySession.get(row.sessionId) ?? new Set<string>();
+
+      const fmt = (label: string, names: string[]) =>
+        names.length === 0 ? `${label} (0)` : `${label} (${names.length}): ${names.map(firstName).join(", ")}`;
+
+      const newNames = participants.filter((p) => !waived.has(p.id) && p.studentId === null).map((p) => p.name);
+      const existingNames = participants.filter((p) => !waived.has(p.id) && p.studentId !== null).map((p) => p.name);
+      const waivedNames = participants.filter((p) => waived.has(p.id)).map((p) => p.name);
+
+      const title = row.tutorName
+        ? `${row.programmeName} — ${row.tutorName}`
+        : row.programmeName;
+      const description = [
+        fmt("New", newNames),
+        fmt("Existing", existingNames),
+        fmt("Absent notified", waivedNames),
+      ].join("\n");
+
+      const payload: GCalEventPayload = {
+        summary: title,
+        description,
+        start,
+        end,
+        komSource: "holiday_session",
+        komId: row.sessionId,
+      };
+
+      if (!dryRun) {
+        const gcalId = await upsertCalendarEvent(row.gcalEventId ?? null, payload);
+        if (!row.gcalEventId || row.gcalEventId !== gcalId) {
+          await db
+            .update(holidayProgrammeSessions)
+            .set({ gcalEventId: gcalId })
+            .where(eq(holidayProgrammeSessions.id, row.sessionId));
+        }
+      }
+      result.holidaySessions.synced++;
+    } catch (err) {
+      console.error(`[gcal-sync] holiday_session ${row.sessionId}`, err);
+      result.holidaySessions.errors++;
+    }
+  }
+
+  // ── 5. Orphan cleanup ─────────────────────────────────────────────────────
 
   if (!dryRun) {
     try {
@@ -501,12 +673,14 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
       const sessionIdSet = new Set(sessionRows.map((r) => r.sessionId));
       const eventIdSet = new Set(eventRows.map((r) => r.id));
       const shiftIdSet = new Set(shiftRows.map((r) => r.id));
+      const hpSessionIdSet = new Set(hpSessionRows.map((r) => r.sessionId));
 
       for (const ev of gcalEvents) {
         let orphan = false;
         if (ev.komSource === "class_session" && !sessionIdSet.has(ev.komId)) orphan = true;
         if (ev.komSource === "calendar_event" && !eventIdSet.has(ev.komId)) orphan = true;
         if (ev.komSource === "admin_shift" && !shiftIdSet.has(ev.komId)) orphan = true;
+        if (ev.komSource === "holiday_session" && !hpSessionIdSet.has(ev.komId)) orphan = true;
         if (orphan) {
           await deleteCalendarEvent(ev.gcalEventId);
           result.orphansDeleted++;

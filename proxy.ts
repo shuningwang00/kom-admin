@@ -19,7 +19,7 @@ function isPublicPath(pathname: string): boolean {
   return false;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // BILLING_ADMIN_PASSWORD set = require Google sign-in (kom_session), not the password value.
   const authGateEnabled = getAdminPassword();
   if (!authGateEnabled) return NextResponse.next();

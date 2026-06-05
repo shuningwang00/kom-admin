@@ -2,6 +2,8 @@ import { assertCanManageStudents } from "@/lib/auth/access";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { holidayProgrammeParticipants } from "@/lib/db/schema";
+import type { ContactType } from "@/lib/contacts";
+import { CONTACT_TYPES } from "@/lib/contacts";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +24,20 @@ export async function PATCH(
 
     if (body.fee != null) updates.fee = String(body.fee).trim();
     if (body.feePaid != null) updates.feePaid = Boolean(body.feePaid);
+    if (body.name != null) updates.name = String(body.name).trim();
+    if (body.level != null) updates.level = String(body.level).trim();
+    if (body.primaryContact != null) updates.primaryContact = String(body.primaryContact).trim();
+    if (body.primaryContactType != null) {
+      const v = body.primaryContactType as string;
+      updates.primaryContactType = (CONTACT_TYPES.includes(v as ContactType) ? v : null) as ContactType | null;
+    }
+    if (body.secondaryContact != null) updates.secondaryContact = String(body.secondaryContact).trim();
+    if (body.secondaryContactType != null) {
+      const v = body.secondaryContactType as string;
+      updates.secondaryContactType = (CONTACT_TYPES.includes(v as ContactType) ? v : null) as ContactType | null;
+    }
+    if (body.parentName != null) updates.parentName = String(body.parentName).trim();
+    if (body.school != null) updates.school = String(body.school).trim();
     if (body.notes != null) updates.notes = String(body.notes).trim();
 
     const db = getDb();

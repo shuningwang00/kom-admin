@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import type { calendar_v3 } from "googleapis";
 import { getServerGoogleAuthClient } from "@/lib/google/auth";
 
-export type KomSource = "class_session" | "calendar_event" | "admin_shift";
+export type KomSource = "class_session" | "calendar_event" | "admin_shift" | "holiday_session";
 
 export type GCalEventPayload = {
   summary: string;
@@ -82,7 +82,7 @@ export async function listKomEvents(
   const cid = calendarId();
   const results: Array<{ gcalEventId: string; komSource: KomSource; komId: string }> = [];
 
-  const sources: KomSource[] = ["class_session", "calendar_event", "admin_shift"];
+  const sources: KomSource[] = ["class_session", "calendar_event", "admin_shift", "holiday_session"];
 
   for (const src of sources) {
     let pageToken: string | undefined;

@@ -480,6 +480,7 @@ export const holidayProgrammeSessions = pgTable(
     timeLabel: text("time_label").notNull().default(""),
     tutorName: text("tutor_name").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    gcalEventId: text("gcal_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

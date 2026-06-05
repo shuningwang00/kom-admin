@@ -100,6 +100,19 @@ const emptySessionForm = {
   notes: "",
 };
 
+const emptyEditLeadForm = {
+  firstName: "",
+  lastName: "",
+  level: "",
+  primaryContactType: "" as ContactType | "",
+  primaryContact: "",
+  secondaryContactType: "" as ContactType | "",
+  secondaryContact: "",
+  school: "",
+  parentName: "",
+  notes: "",
+};
+
 function fmt12h(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
   if (isNaN(h)) return hhmm;
@@ -144,6 +157,8 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
   const [editFeeId, setEditFeeId] = useState<string | null>(null);
   const [editFeeValue, setEditFeeValue] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingParticipantId, setEditingParticipantId] = useState<string | null>(null);
+  const [editLeadForm, setEditLeadForm] = useState(emptyEditLeadForm);
 
   const tutorOptions = useMemo(() => {
     const names = new Set(classes.map((c) => c.tutor.trim()).filter(Boolean));
@@ -313,6 +328,37 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
     if (res.ok) {
       setEditFeeId(null);
       await load();
+    }
+  }
+
+  async function saveEditLead(participantId: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/programmes/${programmeId}/participants/${participantId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...editLeadForm,
+            name: `${editLeadForm.firstName.trim()} ${editLeadForm.lastName.trim()}`.trim(),
+            primaryContactType: editLeadForm.primaryContactType || null,
+            secondaryContactType: editLeadForm.secondaryContactType || null,
+          }),
+        },
+      );
+      if (res.ok) {
+        setEditingParticipantId(null);
+        await load();
+      } else {
+        const data = (await res.json()) as { error?: string };
+        setError(data.error ?? "Failed to save.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -906,17 +952,147 @@ export default function ProgrammeDetail({ programmeId }: { programmeId: string }
                     </span>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => removeParticipant(p.id)}
-                    className="ml-auto text-xs text-red-400 hover:text-red-600"
-                  >
-                    Remove
-                  </button>
+                  <div className="ml-auto flex items-center gap-3">
+                    {!p.studentId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editingParticipantId === p.id) {
+                            setEditingParticipantId(null);
+                          } else {
+                            setEditingParticipantId(p.id);
+                            setExpandedId(null);
+                            const spaceIdx = p.name.indexOf(" ");
+                            setEditLeadForm({
+                              firstName: spaceIdx >= 0 ? p.name.slice(0, spaceIdx) : p.name,
+                              lastName: spaceIdx >= 0 ? p.name.slice(spaceIdx + 1) : "",
+                              level: p.level,
+                              primaryContactType: p.primaryContactType ?? "",
+                              primaryContact: p.primaryContact,
+                              secondaryContactType: p.secondaryContactType ?? "",
+                              secondaryContact: p.secondaryContact,
+                              school: p.school,
+                              parentName: p.parentName,
+                              notes: p.notes,
+                            });
+                          }
+                        }}
+                        className="text-xs text-sky-600 hover:text-sky-800"
+                      >
+                        {editingParticipantId === p.id ? "Cancel" : "Edit"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeParticipant(p.id)}
+                      className="text-xs text-red-400 hover:text-red-600"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
 
-                {/* Expanded details */}
-                {expandedId === p.id && (
+                {/* Inline edit form for leads */}
+                {editingParticipantId === p.id && (
+                  <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50/40 p-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="font-medium text-zinc-700">First name</span>
+                        <input
+                          type="text"
+                          value={editLeadForm.firstName}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, firstName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="font-medium text-zinc-700">Last name</span>
+                        <input
+                          type="text"
+                          value={editLeadForm.lastName}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, lastName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="font-medium text-zinc-700">Level</span>
+                        <select
+                          value={editLeadForm.level}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, level: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        >
+                          <option value="">— Select level —</option>
+                          {LEVEL_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-sm">
+                        <span className="font-medium text-zinc-700">School</span>
+                        <input
+                          type="text"
+                          value={editLeadForm.school}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, school: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="font-medium text-zinc-700">Parent name</span>
+                        <input
+                          type="text"
+                          value={editLeadForm.parentName}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, parentName: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <ContactFields
+                        prefix="Primary"
+                        typeLabel="Primary contact type"
+                        typeValue={editLeadForm.primaryContactType}
+                        numberValue={editLeadForm.primaryContact}
+                        onTypeChange={(v) => setEditLeadForm((f) => ({ ...f, primaryContactType: v }))}
+                        onNumberChange={(v) => setEditLeadForm((f) => ({ ...f, primaryContact: v }))}
+                      />
+                      <ContactFields
+                        prefix="Secondary"
+                        typeLabel="Secondary contact type"
+                        typeValue={editLeadForm.secondaryContactType}
+                        numberValue={editLeadForm.secondaryContact}
+                        onTypeChange={(v) => setEditLeadForm((f) => ({ ...f, secondaryContactType: v }))}
+                        onNumberChange={(v) => setEditLeadForm((f) => ({ ...f, secondaryContact: v }))}
+                      />
+                      <label className="block text-sm sm:col-span-2">
+                        <span className="font-medium text-zinc-700">Notes</span>
+                        <input
+                          type="text"
+                          value={editLeadForm.notes}
+                          onChange={(e) => setEditLeadForm((f) => ({ ...f, notes: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => saveEditLead(p.id)}
+                        className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-50"
+                      >
+                        {saving ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingParticipantId(null)}
+                        className="text-xs text-zinc-500 hover:text-zinc-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Expanded details (only when not editing) */}
+                {expandedId === p.id && editingParticipantId !== p.id && (
                   <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg bg-zinc-50 px-3 py-2.5 text-xs sm:grid-cols-3">
                     {p.school && (
                       <div>
