@@ -153,16 +153,21 @@ export async function buildDailyReminder(): Promise<string> {
       }
     }
 
-    // Waived per session (attendance records may not exist yet)
-    const waivedRows = sessionIds.length
+    // Non-attending per session: waived, absent notified, or missed with makeup elsewhere
+    const absentRows = sessionIds.length
       ? await db
           .select({ sessionId: attendanceRecords.sessionId })
           .from(attendanceRecords)
-          .where(and(inArray(attendanceRecords.sessionId, sessionIds), eq(attendanceRecords.status, "waive")))
+          .where(
+            and(
+              inArray(attendanceRecords.sessionId, sessionIds),
+              inArray(attendanceRecords.status, ["waive", "absent_notified", "makeup_scheduled"]),
+            ),
+          )
       : [];
-    const waivedCount = new Map<string, number>();
-    for (const w of waivedRows) {
-      waivedCount.set(w.sessionId, (waivedCount.get(w.sessionId) ?? 0) + 1);
+    const absentCount = new Map<string, number>();
+    for (const w of absentRows) {
+      absentCount.set(w.sessionId, (absentCount.get(w.sessionId) ?? 0) + 1);
     }
 
     const lines = sessionRows
@@ -182,21 +187,21 @@ export async function buildDailyReminder(): Promise<string> {
         const enrolled = enrolledCount.get(cls.id) ?? 0;
         const trials = trialCount.get(cls.id) ?? 0;
         const makeups = makeupCount.get(session.id) ?? 0;
-        const waived = waivedCount.get(session.id) ?? 0;
+        const absent = absentCount.get(session.id) ?? 0;
+        const attending = Math.max(0, enrolled - absent);
 
-        let counts = "";
-        if (waived >= enrolled && trials === 0 && makeups === 0) {
-          counts = `\n    ⚠️ Class cancelled, all students waived/makeup`;
-        } else {
-          const attendParts: string[] = [];
-          if (enrolled > 0) attendParts.push(`${enrolled} student${enrolled > 1 ? "s" : ""}`);
-          if (trials > 0) attendParts.push(`${trials} trial${trials > 1 ? "s" : ""}`);
-          if (makeups > 0) attendParts.push(`${makeups} M/U`);
-          const base = attendParts.join(" + ");
-          counts = `\n    ${base}${waived > 0 ? ` · ${waived} waived` : ""}`;
-        }
+        // Skip classes where nobody is effectively attending
+        if (attending === 0 && trials === 0 && makeups === 0) return null;
+
+        const attendParts: string[] = [];
+        if (attending > 0) attendParts.push(`${attending} student${attending > 1 ? "s" : ""}`);
+        if (trials > 0) attendParts.push(`${trials} trial${trials > 1 ? "s" : ""}`);
+        if (makeups > 0) attendParts.push(`${makeups} M/U`);
+        const base = attendParts.join(" + ");
+        const counts = `\n    ${base}${absent > 0 ? ` · ${absent} absent` : ""}`;
         return `  • ${header}${counts}`;
-      });
+      })
+      .filter((l): l is string => l !== null);
 
     if (lines.length > 0) {
       sessionsSection = `\n📚 <b>Classes (${lines.length})</b>\n${lines.join("\n")}`;

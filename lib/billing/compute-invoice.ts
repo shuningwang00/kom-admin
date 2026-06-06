@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, lte, gte, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, gte, or } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import {
   attendanceRecords,
@@ -149,6 +149,8 @@ async function computeForStudent(
         eq(enrollments.studentId, studentId),
         or(isNull(enrollments.startedAt), lte(enrollments.startedAt, monthEnd)),
         or(isNull(enrollments.endedAt), gte(enrollments.endedAt, effectiveStart)),
+        // Skip zombie enrollments: inactive classes where endedAt was never set
+        or(eq(classes.isActive, true), isNotNull(enrollments.endedAt)),
       ),
     );
 
@@ -405,7 +407,7 @@ export async function computeInvoicePreview(
   // Sort by name for consistent ordering
   studentRows.sort((a, b) => a.name.localeCompare(b.name));
 
-  const contactName = studentRows[0].parentName || studentRows[0].name;
+  const contactName = studentRows[0].name;
 
   // Check for existing non-voided invoices
   const existing = await db

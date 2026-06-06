@@ -107,6 +107,7 @@ export default function AttendanceDaily() {
     new Date().toISOString().slice(0, 7),
   );
   const [actionError, setActionError] = useState("");
+  const [generateClassId, setGenerateClassId] = useState("");
 
   const today = todayCalendarDate();
 
@@ -133,6 +134,12 @@ export default function AttendanceDaily() {
   const holSessions = dayData?.holSessions ?? [];
   const role = dayData?.role ?? "admin";
   const canGenerateSessions = dayData?.canGenerateSessions ?? false;
+
+  const { data: classesData } = useSWR<{ classes: { id: string; label: string; weekday: string; tutor: string; time: string }[] }>(
+    canGenerateSessions ? "/api/classes" : null,
+    fetcher,
+  );
+  const activeClasses = classesData?.classes ?? [];
   const monthSessions = monthData?.sessions ?? [];
   const monthHolSessions = monthData?.holSessions ?? [];
   const unmarkedPast = unmarkedData?.sessions ?? [];
@@ -146,14 +153,15 @@ export default function AttendanceDaily() {
     const res = await fetch("/api/sessions/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yearMonth }),
+      body: JSON.stringify({ yearMonth, classId: generateClassId || undefined }),
     });
-    const data = (await res.json()) as { error?: string; result?: object };
+    const data = (await res.json()) as { error?: string; result?: { created: number; skipped: number } };
     if (!res.ok) {
       setActionError(data.error ?? "Generate failed");
       return;
     }
-    alert(`Sessions: ${JSON.stringify(data.result)}`);
+    const r = data.result;
+    alert(r ? `Created ${r.created} session(s), skipped ${r.skipped}.` : "Done");
     await globalMutate(`/api/sessions?date=${date}`);
   }
 
@@ -325,6 +333,18 @@ export default function AttendanceDaily() {
               onChange={(e) => setYearMonth(e.target.value)}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
             />
+            <select
+              value={generateClassId}
+              onChange={(e) => setGenerateClassId(e.target.value)}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700"
+            >
+              <option value="">All classes</option>
+              {activeClasses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label} — {c.weekday} {c.time}{c.tutor ? ` (${c.tutor})` : ""}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={generateMonth}

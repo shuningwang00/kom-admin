@@ -17,10 +17,12 @@ export async function POST(request: Request) {
     }
     const body = (await request.json().catch(() => ({}))) as {
       yearMonth?: string;
+      classId?: string;
     };
     const yearMonth =
       body.yearMonth?.trim() || new Date().toISOString().slice(0, 7);
-    const result = await generateSessionsForMonth(yearMonth);
+    const classId = body.classId?.trim() || undefined;
+    const result = await generateSessionsForMonth(yearMonth, classId);
     return jsonOk({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";

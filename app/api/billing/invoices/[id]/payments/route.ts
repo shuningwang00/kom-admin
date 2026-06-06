@@ -1,6 +1,7 @@
 import { assertCanUseBilling } from "@/lib/auth/access";
 import { jsonError, jsonOk } from "@/lib/api/json";
 import { recordPayment } from "@/lib/billing/invoice-db";
+import { dbErrorMessage } from "@/lib/db/query-error";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,6 @@ export async function POST(
 
     return jsonOk({ invoice: updated });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to record payment";
-    return jsonError(msg, 500);
+    return jsonError(dbErrorMessage(err, "Failed to record payment"), 500);
   }
 }

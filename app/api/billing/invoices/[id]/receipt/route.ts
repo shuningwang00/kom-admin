@@ -2,7 +2,7 @@ import { assertCanUseBilling } from "@/lib/auth/access";
 import { jsonError } from "@/lib/api/json";
 import { getInvoice, updateInvoiceReceipt } from "@/lib/billing/invoice-db";
 import { renderDbReceiptPdf } from "@/lib/pdf/render";
-import { uploadBillingReceiptToDrive } from "@/lib/google/drive";
+import { deleteFileFromDrive, uploadBillingReceiptToDrive } from "@/lib/google/drive";
 import { pdfNextResponse } from "@/lib/pdf/response";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +45,10 @@ export async function POST(
 
     const nameSlug = invoice.studentNames.join("-").replace(/\s+/g, "-");
     const fileName = `${invoice.invoiceNumber}-${nameSlug}.pdf`;
+    if (invoice.receiptFileId) {
+      await deleteFileFromDrive(invoice.receiptFileId).catch(() => null);
+    }
+
     const { fileId, fileName: savedName } = await uploadBillingReceiptToDrive(buffer, fileName, invoice.billingMonth);
     await updateInvoiceReceipt(id, { receiptFileId: fileId, receiptFileName: savedName });
 

@@ -31,6 +31,7 @@ export type DashboardStudentRow = {
   studentIds: string[];
   studentNames: string[];
   contactName: string;
+  parentName: string | null;
   billingGroupId: string | null;
   level: string;
   enrolledClasses: Array<{ studentId: string; classId: string; classLabel: string }>;
@@ -205,7 +206,7 @@ export async function getInvoice(id: string): Promise<InvoiceDetail | null> {
   ]);
 
   const studentNames = studentEntryRows.map((r) => r.studentName);
-  const contactName = studentEntryRows[0]?.parentName || studentEntryRows[0]?.studentName || "";
+  const contactName = studentEntryRows[0]?.studentName || "";
 
   return {
     ...inv,
@@ -329,10 +330,16 @@ export async function listBillingDashboard(
     }),
   );
 
-  const results: DashboardStudentRow[] = groupList.map((g, i) => ({
+  // Build parentName map: studentId → parentName (null if none)
+  const parentNameByStudentId = new Map(activeStudents.map((s) => [s.studentId, s.parentName ?? null]));
+
+  const results: DashboardStudentRow[] = groupList.map((g, i) => {
+    const firstStudentParent = parentNameByStudentId.get(g.studentsWithClasses[0]?.studentId ?? "") ?? null;
+    return {
     studentIds: g.studentIds,
     studentNames: g.studentNames,
-    contactName: g.studentsWithClasses[0]?.parentName || g.studentNames[0] || "",
+    contactName: g.studentNames[0] || "",
+    parentName: firstStudentParent || null,
     billingGroupId: g.billingGroupId,
     level: groupLevel(g.allClasses.map((c) => c.classLabel)),
     enrolledClasses: g.allClasses.map((c) => ({ studentId: c.studentId, classId: c.classId, classLabel: c.classLabel })),
@@ -346,7 +353,8 @@ export async function listBillingDashboard(
     pdfFileId: g.inv?.pdfFileId ?? null,
     receiptFileId: g.inv?.receiptFileId ?? null,
     billingMonth,
-  }));
+    };
+  });
 
   return results;
 }
@@ -359,41 +367,162 @@ export async function recordPayment(
   const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
   if (!inv) throw new Error("Invoice not found");
 
-  await db.insert(invoicePayments).values({
-    invoiceId,
-    amount: payment.amount.toFixed(2),
-    paymentDate: payment.paymentDate,
-    notes: payment.notes ?? "",
-    recordedBy: payment.recordedBy,
-  });
-
   const newPaid = Math.round((parseFloat(inv.totalPaid) + payment.amount) * 100) / 100;
   const totalDue = parseFloat(inv.totalDue);
   const overpaid = Math.round((newPaid - totalDue) * 100) / 100;
-
   const newStatus: StoredInvoice["status"] =
     newPaid >= totalDue - 0.005 ? "paid" : newPaid > 0 ? "partial" : "sent";
-
   const now = new Date();
-  const [updated] = await db
-    .update(invoices)
-    .set({
-      totalPaid: newPaid.toFixed(2),
-      status: newStatus,
-      paidAt: newStatus === "paid" ? now : inv.paidAt,
-      updatedAt: now,
-    })
-    .where(eq(invoices.id, invoiceId))
-    .returning();
 
-  if (overpaid > 0.005) {
-    await db.insert(pendingCredits).values({
-      studentId: inv.studentId,
+  // Resolve credit student for overpayment before starting transaction
+  let creditStudentId: string | null = inv.studentId;
+  if (overpaid > 0.005 && !creditStudentId) {
+    const [firstStudent] = await db
+      .select({ studentId: invoiceStudents.studentId })
+      .from(invoiceStudents)
+      .where(eq(invoiceStudents.invoiceId, invoiceId))
+      .limit(1);
+    creditStudentId = firstStudent?.studentId ?? null;
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    await tx.insert(invoicePayments).values({
+      invoiceId,
+      amount: payment.amount.toFixed(2),
+      paymentDate: payment.paymentDate,
+      notes: payment.notes ?? "",
+      recordedBy: payment.recordedBy,
+    });
+
+    const [result] = await tx
+      .update(invoices)
+      .set({
+        totalPaid: newPaid.toFixed(2),
+        status: newStatus,
+        paidAt: newStatus === "paid" ? now : inv.paidAt,
+        updatedAt: now,
+      })
+      .where(eq(invoices.id, invoiceId))
+      .returning();
+
+    if (overpaid > 0.005 && creditStudentId) {
+      await tx.insert(pendingCredits).values({
+        studentId: creditStudentId,
+        amount: overpaid.toFixed(2),
+        reason: `Overpayment on ${inv.invoiceNumber}`,
+        sourceInvoiceId: invoiceId,
+      });
+    }
+
+    return result;
+  });
+
+  return updated;
+}
+
+async function reconcileOverpaymentCredit(
+  tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+  invoiceId: string,
+  invoiceNumber: string,
+  newPaid: number,
+  totalDue: number,
+  studentId: string | null,
+): Promise<void> {
+  // Remove any unapplied overpayment credits from this invoice
+  await tx
+    .delete(pendingCredits)
+    .where(and(eq(pendingCredits.sourceInvoiceId, invoiceId), isNull(pendingCredits.appliedAt)));
+
+  const overpaid = Math.round((newPaid - totalDue) * 100) / 100;
+  if (overpaid > 0.005 && studentId) {
+    await tx.insert(pendingCredits).values({
+      studentId,
       amount: overpaid.toFixed(2),
-      reason: `Overpayment on ${inv.invoiceNumber}`,
+      reason: `Overpayment on ${invoiceNumber}`,
       sourceInvoiceId: invoiceId,
     });
   }
+}
+
+export async function updatePayment(
+  invoiceId: string,
+  paymentId: string,
+  patch: { amount: number; paymentDate: string; notes?: string },
+): Promise<StoredInvoice> {
+  const db = getDb();
+  const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+  if (!inv) throw new Error("Invoice not found");
+
+  let creditStudentId = inv.studentId;
+  if (!creditStudentId) {
+    const [first] = await db.select({ studentId: invoiceStudents.studentId }).from(invoiceStudents).where(eq(invoiceStudents.invoiceId, invoiceId)).limit(1);
+    creditStudentId = first?.studentId ?? null;
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    await tx
+      .update(invoicePayments)
+      .set({ amount: patch.amount.toFixed(2), paymentDate: patch.paymentDate, notes: patch.notes ?? "" })
+      .where(and(eq(invoicePayments.id, paymentId), eq(invoicePayments.invoiceId, invoiceId)));
+
+    const allPayments = await tx
+      .select({ amount: invoicePayments.amount })
+      .from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceId));
+
+    const newPaid = Math.round(allPayments.reduce((s, p) => s + parseFloat(p.amount), 0) * 100) / 100;
+    const totalDue = parseFloat(inv.totalDue);
+    const newStatus: StoredInvoice["status"] =
+      newPaid >= totalDue - 0.005 ? "paid" : newPaid > 0 ? "partial" : "sent";
+
+    const [result] = await tx
+      .update(invoices)
+      .set({ totalPaid: newPaid.toFixed(2), status: newStatus, paidAt: newStatus === "paid" ? (inv.paidAt ?? new Date()) : null, receiptFileId: null, receiptFileName: null, updatedAt: new Date() })
+      .where(eq(invoices.id, invoiceId))
+      .returning();
+
+    await reconcileOverpaymentCredit(tx, invoiceId, inv.invoiceNumber, newPaid, totalDue, creditStudentId);
+
+    return result;
+  });
+
+  return updated;
+}
+
+export async function deletePayment(invoiceId: string, paymentId: string): Promise<StoredInvoice> {
+  const db = getDb();
+  const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+  if (!inv) throw new Error("Invoice not found");
+
+  let creditStudentId = inv.studentId;
+  if (!creditStudentId) {
+    const [first] = await db.select({ studentId: invoiceStudents.studentId }).from(invoiceStudents).where(eq(invoiceStudents.invoiceId, invoiceId)).limit(1);
+    creditStudentId = first?.studentId ?? null;
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    await tx.delete(invoicePayments).where(and(eq(invoicePayments.id, paymentId), eq(invoicePayments.invoiceId, invoiceId)));
+
+    const allPayments = await tx
+      .select({ amount: invoicePayments.amount })
+      .from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceId));
+
+    const newPaid = Math.round(allPayments.reduce((s, p) => s + parseFloat(p.amount), 0) * 100) / 100;
+    const totalDue = parseFloat(inv.totalDue);
+    const newStatus: StoredInvoice["status"] =
+      newPaid >= totalDue - 0.005 ? "paid" : newPaid > 0 ? "partial" : "sent";
+
+    const [result] = await tx
+      .update(invoices)
+      .set({ totalPaid: newPaid.toFixed(2), status: newStatus, paidAt: newStatus === "paid" ? (inv.paidAt ?? new Date()) : null, receiptFileId: null, receiptFileName: null, updatedAt: new Date() })
+      .where(eq(invoices.id, invoiceId))
+      .returning();
+
+    await reconcileOverpaymentCredit(tx, invoiceId, inv.invoiceNumber, newPaid, totalDue, creditStudentId);
+
+    return result;
+  });
 
   return updated;
 }

@@ -427,29 +427,19 @@ export default function SessionAttendancePanel({
     );
     if (pending.length === 0 && trialPending.length === 0) return;
 
-    const missing = pending.filter((row) => !draft[row.student.id]);
-    if (missing.length > 0) {
-      setError(
-        `Select a status for each student before saving (${missing.map((r) => r.student.name).join(", ")}).`,
-      );
-      return;
-    }
-    const missingTrials = trialPending.filter(
-      (row) => !trialDraft[row.trialLeadId],
-    );
-    if (missingTrials.length > 0) {
-      setError(
-        `Select a status for each trial student (${missingTrials.map((r) => r.name).join(", ")}).`,
-      );
+    const readyStudents = pending.filter((row) => !!draft[row.student.id]);
+    const readyTrials = trialPending.filter((row) => !!trialDraft[row.trialLeadId]);
+    if (readyStudents.length === 0 && readyTrials.length === 0) {
+      setError("Select a status for at least one student before saving.");
       return;
     }
     setSaving(true);
     setError("");
-    const updates = pending.map((row) => ({
+    const updates = readyStudents.map((row) => ({
       studentId: row.student.id,
       status: draft[row.student.id]!,
     }));
-    const trialUpdates = trialPending.map((row) => ({
+    const trialUpdates = readyTrials.map((row) => ({
       trialLeadId: row.trialLeadId,
       status: trialDraft[row.trialLeadId]!,
     }));

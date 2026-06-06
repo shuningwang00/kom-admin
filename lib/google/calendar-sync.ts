@@ -688,7 +688,8 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
 
   if (!dryRun) {
     try {
-      const timeMin = new Date(windowStart + "T00:00:00+08:00").toISOString();
+      // Look back 30 days so recently-deleted past sessions are also cleaned up
+      const timeMin = new Date(sgtDatePlus(-30) + "T00:00:00+08:00").toISOString();
       const timeMax = new Date(windowEnd + "T23:59:59+08:00").toISOString();
       const gcalEvents = await listKomEvents(timeMin, timeMax);
 

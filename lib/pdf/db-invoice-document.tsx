@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   paymentSubLabel: { fontSize: 7.5, fontWeight: "bold", letterSpacing: 0.5, color: "#171717", marginBottom: 4, textTransform: "uppercase" },
   bankBlock: { marginTop: 10 },
   paymentLine: { fontSize: 8.5, color: "#404040", marginBottom: 2.5, lineHeight: 1.4 },
-  remarksBlock: { marginBottom: 14 },
+  remarksBlock: { marginBottom: 14, marginTop: -10 },
   remarksText: { fontSize: 8.5, color: "#525252", lineHeight: 1.5 },
 });
 
@@ -220,7 +220,6 @@ export function DbInvoiceDocument(props: DbInvoicePdfProps) {
   const showTotalsBreakdown = showDiscount || showBalance || showCredit;
 
   const studentNamesStr = props.studentNames.join(", ");
-  const showStudentNames = studentNamesStr && studentNamesStr !== props.contactName;
 
   return (
     <Document>
@@ -241,10 +240,7 @@ export function DbInvoiceDocument(props: DbInvoicePdfProps) {
         <View style={styles.metaRow}>
           <View style={styles.metaColBillTo}>
             <Text style={styles.blockLabel}>Bill to</Text>
-            <Text style={styles.billToName}>{props.contactName || studentNamesStr}</Text>
-            {showStudentNames && (
-              <Text style={styles.billToSub}>{studentNamesStr}</Text>
-            )}
+            <Text style={styles.billToName}>{studentNamesStr || props.contactName}</Text>
           </View>
           <View style={styles.metaColInvoice}>
             <Text style={styles.blockLabel}>Invoice</Text>
@@ -253,12 +249,6 @@ export function DbInvoiceDocument(props: DbInvoicePdfProps) {
             <InvoiceMetaRow label="Due date" value={props.dueAt} />
           </View>
         </View>
-
-        {props.remarks ? (
-          <View style={styles.remarksBlock}>
-            <Text style={styles.remarksText}>{props.remarks}</Text>
-          </View>
-        ) : null}
 
         {/* Line items table */}
         <View style={styles.table}>
@@ -288,8 +278,14 @@ export function DbInvoiceDocument(props: DbInvoicePdfProps) {
           </View>
         </View>
 
+        {props.remarks ? (
+          <View style={styles.remarksBlock}>
+            <Text style={styles.remarksText}><Text style={{ fontWeight: "bold" }}>Notes: </Text>{props.remarks}</Text>
+          </View>
+        ) : null}
+
         {/* Payment section */}
-        <View style={styles.paymentSection}>
+        <View style={styles.paymentSection} wrap={false}>
           <Text style={styles.paymentBlockLabel}>Payment methods</Text>
           <View style={styles.paymentColumns}>
             <View style={styles.paymentLeft}>

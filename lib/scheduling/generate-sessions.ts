@@ -2,7 +2,7 @@ import { getDb } from "@/lib/db/index";
 import { classSessions, classes, enrollments, trialLeads } from "@/lib/db/schema";
 import { canonicalTimeLabel } from "@/lib/scheduling/time-slots";
 import { datesForWeekdayInMonth, parseYearMonth } from "@/lib/scheduling/weekday-dates";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 export type GenerateSessionsResult = {
   yearMonth: string;
@@ -21,13 +21,18 @@ async function sessionExists(
   classId: string,
   scheduledDate: string,
 ): Promise<boolean> {
+  // Also treat the date as "occupied" if an existing session was rescheduled FROM it —
+  // otherwise re-running generation after a reschedule would create a duplicate for the vacated slot.
   const rows = await db
     .select({ id: classSessions.id })
     .from(classSessions)
     .where(
       and(
         eq(classSessions.classId, classId),
-        eq(classSessions.scheduledDate, scheduledDate),
+        or(
+          eq(classSessions.scheduledDate, scheduledDate),
+          eq(classSessions.originalDate, scheduledDate),
+        ),
       ),
     )
     .limit(1);
@@ -36,6 +41,7 @@ async function sessionExists(
 
 export async function generateSessionsForMonth(
   yearMonth: string,
+  classId?: string,
 ): Promise<GenerateSessionsResult> {
   const parsed = parseYearMonth(yearMonth);
   if (!parsed) throw new Error("Use yearMonth format YYYY-MM");
@@ -50,7 +56,7 @@ export async function generateSessionsForMonth(
   const activeClasses = await db
     .select()
     .from(classes)
-    .where(eq(classes.isActive, true));
+    .where(and(eq(classes.isActive, true), classId ? eq(classes.id, classId) : undefined));
 
   // Inactive classes that have active trials in this month: generate only for the trial date
   const trialRows = await db

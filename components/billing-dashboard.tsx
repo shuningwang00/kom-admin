@@ -31,6 +31,40 @@ function fmtMoney(s: string | number | null | undefined): string {
   return `S$${n.toFixed(2)}`;
 }
 
+function firstName(name: string): string {
+  return name.split(" ")[0] ?? name;
+}
+
+function formatBillingMonth(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-SG", { month: "long", year: "numeric" });
+}
+
+function buildWaText(
+  row: { contactName: string; parentName: string | null; studentNames: string[]; billingMonth: string },
+  type: "invoice" | "receipt",
+  fileUrl: string,
+  invoiceNumber?: string | null,
+): string {
+  const hasParent = Boolean(row.parentName);
+  const studentFirst = firstName(row.studentNames[0] ?? row.contactName);
+  const month = formatBillingMonth(row.billingMonth);
+
+  if (hasParent) {
+    if (type === "receipt") {
+      return `Thank you for your payment! Please find ${studentFirst}'s receipt for ${month} here: ${fileUrl}`;
+    }
+    return `Hello, please find ${studentFirst}'s invoice for ${month} here: ${fileUrl}`;
+  } else {
+    const greeting = `Hi ${firstName(row.contactName)}, `;
+    if (type === "invoice") {
+      return `${greeting}please find your invoice${invoiceNumber ? ` ${invoiceNumber}` : ""} for ${month} here: ${fileUrl}`;
+    } else {
+      return `${greeting}thank you for your payment! Please find your receipt here: ${fileUrl}`;
+    }
+  }
+}
+
 function levelSortKey(level: string): string {
   if (level === "Siblings") return "0";
   if (level === "JC") return "1";
@@ -298,6 +332,155 @@ function PaymentModal({
   );
 }
 
+// ─── edit payments modal ──────────────────────────────────────────────────────
+
+type StoredPaymentRow = { id: string; amount: string; paymentDate: string; notes: string };
+
+function EditPaymentsModal({
+  invoiceId, invoiceNumber, onClose, onSaved,
+}: {
+  invoiceId: string;
+  invoiceNumber: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [payments, setPayments] = useState<StoredPaymentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch(`/api/billing/invoices/${invoiceId}`);
+      if (res.ok) {
+        const d = (await res.json()) as { invoice: { payments: StoredPaymentRow[] } };
+        setPayments(d.invoice.payments ?? []);
+      }
+      setLoading(false);
+    })();
+  }, [invoiceId]);
+
+  function startEdit(p: StoredPaymentRow) {
+    setEditingId(p.id);
+    setEditAmount(parseFloat(p.amount).toFixed(2));
+    setEditDate(p.paymentDate);
+    setEditNotes(p.notes);
+    setError("");
+  }
+
+  async function handleDelete(paymentId: string) {
+    if (!confirm("Delete this payment?")) return;
+    setDeleting(paymentId);
+    setError("");
+    const res = await fetch(`/api/billing/invoices/${invoiceId}/payments/${paymentId}`, { method: "DELETE" });
+    setDeleting(null);
+    if (!res.ok) {
+      const d = (await res.json()) as { error?: string };
+      setError(d.error ?? "Failed to delete");
+      return;
+    }
+    const refreshed = await fetch(`/api/billing/invoices/${invoiceId}`);
+    if (refreshed.ok) {
+      const d = (await refreshed.json()) as { invoice: { payments: StoredPaymentRow[] } };
+      setPayments(d.invoice.payments ?? []);
+    }
+    onSaved();
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/billing/invoices/${invoiceId}/payments/${editingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: parseFloat(editAmount), paymentDate: editDate, notes: editNotes }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const d = (await res.json()) as { error?: string };
+      setError(d.error ?? "Failed to save");
+      return;
+    }
+    setEditingId(null);
+    const refreshed = await fetch(`/api/billing/invoices/${invoiceId}`);
+    if (refreshed.ok) {
+      const d = (await refreshed.json()) as { invoice: { payments: StoredPaymentRow[] } };
+      setPayments(d.invoice.payments ?? []);
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <p className="font-semibold text-zinc-900">Payments</p>
+          <p className="text-xs text-zinc-500">{invoiceNumber}</p>
+        </div>
+        <div className="max-h-80 overflow-y-auto divide-y divide-zinc-100">
+          {loading ? (
+            <p className="px-5 py-4 text-sm text-zinc-400">Loading…</p>
+          ) : payments.length === 0 ? (
+            <p className="px-5 py-4 text-sm text-zinc-400">No payments recorded.</p>
+          ) : payments.map((p) => (
+            <div key={p.id} className="px-5 py-3">
+              {editingId === p.id ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input type="number" min="0.01" step="0.01" value={editAmount}
+                      onChange={(e) => setEditAmount(e.target.value)}
+                      className="w-24 rounded border border-zinc-300 px-2 py-1 text-sm" />
+                    <input type="date" value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="flex-1 rounded border border-zinc-300 px-2 py-1 text-sm" />
+                  </div>
+                  <input type="text" value={editNotes} placeholder="Notes"
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full rounded border border-zinc-300 px-2 py-1 text-sm" />
+                  {error && <p className="text-xs text-red-600">{error}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => void saveEdit()} disabled={saving}
+                      className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)}
+                      className="text-xs text-zinc-500 hover:text-zinc-800">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-zinc-900">{fmtMoney(p.amount)}</span>
+                    <span className="ml-2 text-xs text-zinc-500">{p.paymentDate}</span>
+                    {p.notes && <span className="ml-2 text-xs text-zinc-400">{p.notes}</span>}
+                  </div>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => startEdit(p)}
+                      className="text-xs text-zinc-400 hover:text-zinc-700">Edit</button>
+                    <button type="button" onClick={() => void handleDelete(p.id)} disabled={deleting === p.id}
+                      className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50">
+                      {deleting === p.id ? "…" : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end border-t border-zinc-200 px-5 py-4">
+          <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-800">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── main dashboard ───────────────────────────────────────────────────────────
 
 export default function BillingDashboard() {
@@ -314,6 +497,8 @@ export default function BillingDashboard() {
   const [paymentModal, setPaymentModal] = useState<PaymentState | null>(null);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [paymentError, setPaymentError] = useState("");
+
+  const [editPaymentsModal, setEditPaymentsModal] = useState<{ invoiceId: string; invoiceNumber: string } | null>(null);
 
   const [busySet, setBusySet] = useState<Set<string>>(new Set());
 
@@ -556,7 +741,7 @@ export default function BillingDashboard() {
                     const rcpBusy = busySet.has((row.invoiceId ?? "") + ":rcp");
 
                     const waLink = row.pdfFileId
-                      ? `https://wa.me/?text=${encodeURIComponent(`Hi ${row.contactName}, please find your invoice ${row.invoiceNumber} here: https://drive.google.com/file/d/${row.pdfFileId}/view`)}`
+                      ? `https://wa.me/?text=${encodeURIComponent(buildWaText(row, "invoice", `https://drive.google.com/file/d/${row.pdfFileId}/view`, row.invoiceNumber))}`
                       : null;
 
                     // Group classes by student for multi-student display
@@ -641,7 +826,12 @@ export default function BillingDashboard() {
                               className="rounded bg-amber-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-600"
                             >SENT?</button>
                           ) : row.invoiceId && row.invoiceStatus === "paid" ? (
-                            <span className="text-sm font-medium text-zinc-700">{fmtMoney(row.totalPaid)}</span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-sm font-medium text-zinc-700">{fmtMoney(row.totalPaid)}</span>
+                              <button type="button"
+                                onClick={() => setEditPaymentsModal({ invoiceId: row.invoiceId!, invoiceNumber: row.invoiceNumber! })}
+                                className="self-start text-xs text-zinc-400 hover:text-zinc-700">Edit</button>
+                            </div>
                           ) : row.invoiceId && !isVoid ? (
                             <div className="flex flex-col gap-1">
                               <button
@@ -653,9 +843,14 @@ export default function BillingDashboard() {
                                   totalPaid: row.totalPaid ?? "0",
                                 })}
                                 className="self-start rounded bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700"
-                              >PAID</button>
+                              >PAID?</button>
                               {parseFloat(row.totalPaid ?? "0") > 0 && (
-                                <span className="text-xs text-zinc-500">{fmtMoney(row.totalPaid)} paid</span>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-xs text-zinc-500">{fmtMoney(row.totalPaid)} paid</span>
+                                  <button type="button"
+                                    onClick={() => setEditPaymentsModal({ invoiceId: row.invoiceId!, invoiceNumber: row.invoiceNumber! })}
+                                    className="self-start text-xs text-zinc-400 hover:text-zinc-700">Edit</button>
+                                </div>
                               )}
                             </div>
                           ) : null}
@@ -664,16 +859,28 @@ export default function BillingDashboard() {
                         <td className="px-4 py-3">
                           {isPaidOrPartial && (
                             row.receiptFileId ? (
-                              <a
-                                href={`https://drive.google.com/file/d/${row.receiptFileId}/view`}
-                                target="_blank" rel="noreferrer"
-                                className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
-                              >RCP</a>
+                              <span className="inline-flex items-center gap-1.5">
+                                <a
+                                  href={`https://drive.google.com/file/d/${row.receiptFileId}/view`}
+                                  target="_blank" rel="noreferrer"
+                                  className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
+                                >PDF</a>
+                                <a
+                                  href={`https://wa.me/?text=${encodeURIComponent(buildWaText(row, "receipt", `https://drive.google.com/file/d/${row.receiptFileId}/view`))}`}
+                                  target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center justify-center rounded p-1 text-[#25D366] hover:bg-green-50"
+                                  title="Send receipt via WhatsApp"
+                                >
+                                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                  </svg>
+                                </a>
+                              </span>
                             ) : (
                               <button
                                 type="button" disabled={rcpBusy}
                                 onClick={() => void triggerReceipt(row.invoiceId!)}
-                                className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50"
+                                className="rounded bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200 disabled:opacity-50"
                               >{rcpBusy ? "…" : "RCP"}</button>
                             )
                           )}
@@ -707,6 +914,14 @@ export default function BillingDashboard() {
           onConfirm={(amount, date, notes) => void submitPayment(amount, date, notes)}
           saving={paymentSaving}
           error={paymentError}
+        />
+      )}
+      {editPaymentsModal && (
+        <EditPaymentsModal
+          invoiceId={editPaymentsModal.invoiceId}
+          invoiceNumber={editPaymentsModal.invoiceNumber}
+          onClose={() => setEditPaymentsModal(null)}
+          onSaved={() => void load()}
         />
       )}
     </div>

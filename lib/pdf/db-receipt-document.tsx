@@ -92,7 +92,6 @@ export function DbReceiptDocument(props: DbReceiptPdfProps) {
     : buildPdfLineItems(tuitionStudents[0]?.lineItems ?? []);
 
   const studentNamesStr = props.studentNames.join(", ");
-  const showStudentNames = studentNamesStr && studentNamesStr !== props.contactName;
 
   return (
     <Document>
@@ -115,10 +114,7 @@ export function DbReceiptDocument(props: DbReceiptPdfProps) {
         <View style={styles.metaRow}>
           <View style={styles.metaColLeft}>
             <Text style={styles.blockLabel}>Payment received from</Text>
-            <Text style={styles.partyName}>{props.contactName || studentNamesStr}</Text>
-            {showStudentNames && (
-              <Text style={styles.partySub}>{studentNamesStr}</Text>
-            )}
+            <Text style={styles.partyName}>{studentNamesStr || props.contactName}</Text>
           </View>
           <View style={styles.metaColRight}>
             <Text style={styles.blockLabel}>Receipt</Text>
