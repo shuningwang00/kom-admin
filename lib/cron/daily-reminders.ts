@@ -222,9 +222,10 @@ export async function buildDailyReminder(): Promise<string> {
   const trialLines = namedTrials.map((t) => {
     const cls = t.classId ? trialClassMap.get(t.classId) : null;
     const dateTag = t.trialDate ? ` · ${fmtDisplayDate(t.trialDate)}` : "";
+    const timeTag = cls?.time?.trim() ? ` · ${fmtTimeLabel(cls.time.trim())}` : "";
     const typeTag = cls ? ` · ${formatClassTypeLabel(cls)}` : "";
     const tutorTag = cls?.tutor?.trim() ? ` · ${cls.tutor.trim()}` : "";
-    return `  • ${t.name}${dateTag}${typeTag}${tutorTag}`;
+    return `  • ${t.name}${dateTag}${timeTag}${typeTag}${tutorTag}`;
   });
 
   // ── 4. HOL programme sessions tomorrow ───────────────────────────────────
@@ -321,7 +322,10 @@ export async function buildDailyReminder(): Promise<string> {
     upcomingParts.push(`<b>Trials (${trialLines.length})</b>\n${trialLines.join("\n")}`);
   }
   if (upcomingMakeups.length > 0) {
-    const lines = upcomingMakeups.map((m) => `  • ${m.studentName} · ${fmtDisplayDate(m.makeupDate)} · ${m.makeupProgrammeType}`);
+    const lines = upcomingMakeups.map((m) => {
+      const timeTag = m.timeLabel?.trim() ? ` · ${fmtTimeLabel(m.timeLabel.trim())}` : "";
+      return `  • ${m.studentName} · ${fmtDisplayDate(m.makeupDate)}${timeTag} · ${m.makeupProgrammeType}`;
+    });
     upcomingParts.push(`<b>Make-up (${upcomingMakeups.length})</b>\n${lines.join("\n")}`);
   }
   const upcomingSection = upcomingParts.length
