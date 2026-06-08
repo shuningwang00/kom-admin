@@ -95,7 +95,8 @@ function buildAllDayPayload(date: string): { start: GCalEventPayload["start"]; e
 }
 
 function firstName(full: string): string {
-  return full.split(" ")[0] ?? full;
+  const parts = full.trim().split(/\s+/);
+  return parts.length >= 3 ? parts.slice(0, -1).join(" ") : full.trim();
 }
 
 /** Format date like "Mon 02/06" for display in descriptions */

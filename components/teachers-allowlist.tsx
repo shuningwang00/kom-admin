@@ -603,7 +603,7 @@ export default function TeamAllowlist() {
       <section>
         <h2 className="mb-1 text-sm font-semibold text-zinc-800">Tutors</h2>
         <p className="mb-3 text-xs text-zinc-500">
-          <strong>From schedule</strong> — synced from Classes (Google Sheet).{" "}
+          <strong>From schedule</strong> — tutors assigned to active classes.{" "}
           <strong>Relief tutors</strong> — limited portal access.{" "}
           <strong>Display name</strong> is used in relief / makeup dropdowns.
         </p>
@@ -670,7 +670,7 @@ export default function TeamAllowlist() {
               unlinkedTutors.length === 0 &&
               reliefPortalMembers.length === 0 && (
               <li className="px-4 py-6 text-center text-sm text-zinc-500">
-                No classes in the database yet. Go to Classes and sync from Google Sheets to get started.
+                No tutors found. Add a tutor name to a class in the Classes page to get started.
               </li>
             )}
           </ul>

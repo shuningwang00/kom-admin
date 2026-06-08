@@ -246,6 +246,19 @@ export default function TrialsManager() {
     setSuccess(`${name} marked as did not enroll.`);
   }
 
+  async function deleteTrial(id: string, name: string) {
+    if (!confirm(`Permanently delete trial record for ${name}? This cannot be undone.`)) return;
+    setError("");
+    const res = await fetch(`/api/trials/${id}`, { method: "DELETE" });
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not delete trial.");
+      return;
+    }
+    await mutateTrials();
+    setSuccess(`${name}'s trial record deleted.`);
+  }
+
   return (
     <div className="space-y-8">
       <p className="text-sm text-zinc-600">
@@ -437,6 +450,7 @@ export default function TrialsManager() {
                   <th className="px-4 py-2.5">Trial date</th>
                   <th className="px-4 py-2.5">Start date</th>
                   <th className="px-4 py-2.5">Source</th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -469,12 +483,21 @@ export default function TrialsManager() {
                         "—"
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => deleteTrial(t.id, t.name)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {trials.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 py-8 text-center text-zinc-500"
                     >
                       No converted trials yet.
@@ -493,6 +516,7 @@ export default function TrialsManager() {
                   <th className="px-4 py-2.5">Contact</th>
                   <th className="px-4 py-2.5">Class</th>
                   <th className="px-4 py-2.5">Trial date</th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -502,11 +526,20 @@ export default function TrialsManager() {
                     <td className="px-4 py-3 text-zinc-600">{formatStudentContacts(t)}</td>
                     <td className="px-4 py-3 text-zinc-600">{classLabel(t.classId)}</td>
                     <td className="px-4 py-3 text-zinc-600">{formatDisplayDate(t.trialDate)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => deleteTrial(t.id, t.name)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {trials.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
                       No declined trials yet.
                     </td>
                   </tr>
@@ -553,6 +586,13 @@ export default function TrialsManager() {
                         className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
                       >
                         Did not enroll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteTrial(t.id, t.name)}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                      >
+                        Delete
                       </button>
                     </div>
                   )}

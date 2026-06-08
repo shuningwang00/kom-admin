@@ -511,6 +511,9 @@ function ClassForm({
   saving: boolean;
 }) {
   const [form, setForm] = useState<FormState>(initial);
+  const [tutorCustomMode, setTutorCustomMode] = useState(
+    () => initial.tutor !== "" && !tutorOptions.includes(initial.tutor),
+  );
 
   const timeOptions = useMemo(() => {
     const slots = listStandardTimeSlots(classDurationMinutes(form.level));
@@ -519,13 +522,6 @@ function ClassForm({
     }
     return slots;
   }, [form.level, form.time]);
-
-  const tutorSelectOptions = useMemo(() => {
-    if (form.tutor && !tutorOptions.includes(form.tutor)) {
-      return [form.tutor, ...tutorOptions];
-    }
-    return tutorOptions;
-  }, [tutorOptions, form.tutor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function set(field: keyof FormState, value: string | boolean) {
     setForm((prev) => {
@@ -623,15 +619,33 @@ function ClassForm({
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Tutor</label>
               <select
-                value={form.tutor}
-                onChange={(e) => set("tutor", e.target.value)}
+                value={tutorCustomMode ? "__custom__" : form.tutor}
+                onChange={(e) => {
+                  if (e.target.value === "__custom__") {
+                    setTutorCustomMode(true);
+                    set("tutor", "");
+                  } else {
+                    setTutorCustomMode(false);
+                    set("tutor", e.target.value);
+                  }
+                }}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
               >
                 <option value="">— Select tutor —</option>
-                {tutorSelectOptions.map((t) => (
+                {tutorOptions.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
+                <option value="__custom__">Other (type name)…</option>
               </select>
+              {tutorCustomMode && (
+                <input
+                  autoFocus
+                  value={form.tutor}
+                  onChange={(e) => set("tutor", e.target.value)}
+                  placeholder="Enter tutor name"
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-300"
+                />
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-700">Classroom</label>

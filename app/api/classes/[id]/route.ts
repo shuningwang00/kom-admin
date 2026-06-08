@@ -2,6 +2,7 @@ import { jsonError, jsonOk } from "@/lib/api/json";
 import { assertCanMutateClasses } from "@/lib/auth/access";
 import { getDb } from "@/lib/db/index";
 import { attendanceRecords, classes, classSessions, weekdayEnum } from "@/lib/db/schema";
+import { canonicalTimeLabel } from "@/lib/scheduling/time-slots";
 import { and, eq, gt, inArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,29 @@ export async function PATCH(
       const [existing] = await db.select({ weekday: classes.weekday }).from(classes).where(eq(classes.id, id));
       if (existing && existing.weekday !== updates.weekday) {
         cancelledSessions = await cancelOldWeekdaySessions(db, id, existing.weekday);
+      }
+    }
+
+    // Propagate time change to future sessions still on the old class time
+    // (skip sessions that were manually rescheduled to a different time)
+    if (updates.time !== undefined) {
+      const [existing] = await db.select({ time: classes.time }).from(classes).where(eq(classes.id, id));
+      if (existing) {
+        const oldTimeLabel = canonicalTimeLabel(existing.time);
+        const newTimeLabel = canonicalTimeLabel(updates.time);
+        if (oldTimeLabel !== newTimeLabel) {
+          await db
+            .update(classSessions)
+            .set({ timeLabel: newTimeLabel, updatedAt: new Date() })
+            .where(
+              and(
+                eq(classSessions.classId, id),
+                eq(classSessions.status, "scheduled"),
+                eq(classSessions.timeLabel, oldTimeLabel),
+                gt(classSessions.scheduledDate, sgtToday()),
+              ),
+            );
+        }
       }
     }
 

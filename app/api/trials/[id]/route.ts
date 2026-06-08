@@ -58,3 +58,20 @@ export async function PATCH(
     return jsonError(message, status);
   }
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    await assertCanManageStudents();
+    const { id } = await params;
+    const db = getDb();
+    const [deleted] = await db.delete(trialLeads).where(eq(trialLeads.id, id)).returning();
+    if (!deleted) return jsonError("Trial not found.", 404);
+    return jsonOk({ deleted: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed";
+    return jsonError(message, message === "Unauthorized" ? 401 : 500);
+  }
+}

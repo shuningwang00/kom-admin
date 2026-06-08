@@ -32,7 +32,8 @@ function fmtMoney(s: string | number | null | undefined): string {
 }
 
 function firstName(name: string): string {
-  return name.split(" ")[0] ?? name;
+  const parts = name.trim().split(/\s+/);
+  return parts.length >= 3 ? parts.slice(0, -1).join(" ") : name.trim();
 }
 
 function formatBillingMonth(ym: string): string {
