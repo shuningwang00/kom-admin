@@ -23,7 +23,7 @@ import { attendanceRecords, trialLeads } from "@/lib/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 
 export type SessionRowInput = {
-  session: { id: string; scheduledDate: string; status?: string };
+  session: { id: string; scheduledDate: string; status?: string; rescheduleNote?: string | null };
   class: { id: string };
 };
 
@@ -128,7 +128,8 @@ export async function attachExpectedAttendance<T extends SessionRowInput>(
   }
 
   return rows.map((row) => {
-    const roster = rosterForClassOnDate(
+    const isCustomMakeupSession = row.session.rescheduleNote === "Makeup session";
+    const roster = isCustomMakeupSession ? [] : rosterForClassOnDate(
       rosterRows,
       row.class.id,
       row.session.scheduledDate,

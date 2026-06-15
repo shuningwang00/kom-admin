@@ -25,6 +25,7 @@ export async function PATCH(
       if (!name) return jsonError("Name is required.");
       updates.name = name;
     }
+    if (body.firstName != null) updates.firstName = String(body.firstName ?? "").trim();
 
     const contactFields = contactFieldsFromBody(body);
     if (contactFields.primaryContact !== undefined) updates.primaryContact = contactFields.primaryContact;

@@ -138,6 +138,7 @@ export const trialLeads = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    firstName: text("first_name").notNull().default(""),
     primaryContact: text("primary_contact").notNull().default(""),
     primaryContactType: contactTypeEnum("primary_contact_type"),
     secondaryContact: text("secondary_contact").notNull().default(""),

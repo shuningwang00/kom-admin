@@ -60,6 +60,7 @@ async function listConvertedFromEnrollments(
     synthetic.push({
       id: `${ENROLLMENT_TRIAL_ID_PREFIX}${enrollment.id}`,
       name: student.name,
+      firstName: student.name.trim().split(/\s+/)[0] ?? "",
       primaryContact: student.primaryContact,
       primaryContactType: student.primaryContactType,
       secondaryContact: student.secondaryContact,

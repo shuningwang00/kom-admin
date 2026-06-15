@@ -31,7 +31,6 @@ export async function DELETE(request: Request, { params }: Params) {
 
     const row = detail.students.find((r) => r.student.id === studentId);
     if (!row) return jsonError("Student not found on this session.", 404);
-    if (row.isMakeupVisitor) return jsonError("Use the cancel makeup flow to remove a makeup visitor.");
     if (row.status === "makeup_scheduled") return jsonError("Use the cancel makeup flow to remove a scheduled makeup.");
 
     const db = getDb();

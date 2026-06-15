@@ -57,10 +57,9 @@ export async function POST(request: Request, { params }: Params) {
 
     const rescheduleNote = body.note?.trim() || "";
 
-    const setOriginalDate =
-      newDate !== originalDate && detail.session.originalDate == null
-        ? originalDate
-        : undefined;
+    // Always track the most recently vacated date so re-running generation
+    // doesn't fill in the slot we just moved away from.
+    const setOriginalDate = newDate !== originalDate ? originalDate : undefined;
 
     const [updated] = await db
       .update(classSessions)

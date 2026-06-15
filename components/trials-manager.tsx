@@ -108,6 +108,7 @@ export default function TrialsManager() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
+          firstName: form.firstName.trim(),
           primaryContact: form.primaryContact,
           primaryContactType: form.primaryContactType,
           secondaryContact: form.secondaryContact,
@@ -205,6 +206,7 @@ export default function TrialsManager() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim(),
+        firstName: editForm.firstName.trim(),
         primaryContact: editForm.primaryContact,
         primaryContactType: editForm.primaryContactType,
         secondaryContact: editForm.secondaryContact,

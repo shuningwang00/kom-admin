@@ -169,6 +169,13 @@
       "when": 1780588800000,
       "tag": "0029_classroom",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1781536433168,
+      "tag": "0030_green_red_wolf",
+      "breakpoints": true
     }
   ]
 }

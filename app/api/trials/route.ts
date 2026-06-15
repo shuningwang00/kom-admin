@@ -31,6 +31,7 @@ export async function POST(request: Request) {
 
     const name = String(body.name ?? "").trim();
     if (!name) return jsonError("Name is required.");
+    const firstName = String(body.firstName ?? "").trim();
 
     const classId = String(body.classId ?? "").trim();
     if (!classId) return jsonError("Class is required for a free trial.");
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
       .insert(trialLeads)
       .values({
         name,
+        firstName,
         ...contactFieldsForCreate(body),
         school: String(body.school ?? "").trim(),
         parentName: String(body.parentName ?? "").trim(),

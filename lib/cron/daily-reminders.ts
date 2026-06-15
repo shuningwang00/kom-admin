@@ -49,7 +49,8 @@ function fmt12h(hhmm: string): string {
 }
 
 function fmtTimeLabel(label: string): string {
-  return label.replace(/(\d{1,2}:\d{2})/g, (t) => fmt12h(t));
+  // Negative lookahead: skip times already followed by am/pm to avoid "4:30ampm"
+  return label.replace(/(\d{1,2}:\d{2})(?!\s*[ap]m)/gi, (t) => fmt12h(t));
 }
 
 export async function buildDailyReminder(): Promise<string> {
@@ -211,21 +212,35 @@ export async function buildDailyReminder(): Promise<string> {
   // ── 3. Upcoming trials (today onwards) ───────────────────────────────────
   const today = sgtDate(0);
   const namedTrials = await db
-    .select({ name: trialLeads.name, classId: trialLeads.classId, trialDate: trialLeads.trialDate })
+    .select({ name: trialLeads.name, firstName: trialLeads.firstName, classId: trialLeads.classId, trialDate: trialLeads.trialDate })
     .from(trialLeads)
-    .where(and(gte(trialLeads.trialDate, today), eq(trialLeads.status, "active")))
+    .where(and(gte(trialLeads.trialDate, tomorrow), eq(trialLeads.status, "active")))
     .orderBy(asc(trialLeads.trialDate));
 
   const trialClassIds = namedTrials.map((t) => t.classId).filter(Boolean) as string[];
   const trialClassRows = trialClassIds.length ? await db.select().from(classes).where(inArray(classes.id, trialClassIds)) : [];
   const trialClassMap = new Map(trialClassRows.map((c) => [c.id, c]));
+
+  // Fetch sessions for each trial's (classId, trialDate) to pick up rescheduled timeLabels
+  const trialDates = [...new Set(namedTrials.map((t) => t.trialDate).filter(Boolean) as string[])];
+  const trialSessionRows = trialClassIds.length && trialDates.length
+    ? await db
+        .select({ classId: classSessions.classId, scheduledDate: classSessions.scheduledDate, timeLabel: classSessions.timeLabel })
+        .from(classSessions)
+        .where(and(inArray(classSessions.classId, trialClassIds), inArray(classSessions.scheduledDate, trialDates)))
+    : [];
+  const trialSessionMap = new Map(trialSessionRows.map((s) => [`${s.classId}:${s.scheduledDate}`, s]));
+
   const trialLines = namedTrials.map((t) => {
     const cls = t.classId ? trialClassMap.get(t.classId) : null;
+    const session = t.classId && t.trialDate ? trialSessionMap.get(`${t.classId}:${t.trialDate}`) : null;
     const dateTag = t.trialDate ? ` · ${fmtDisplayDate(t.trialDate)}` : "";
-    const timeTag = cls?.time?.trim() ? ` · ${fmtTimeLabel(cls.time.trim())}` : "";
+    const rawTime = session?.timeLabel?.trim() || cls?.time?.trim() || "";
+    const timeTag = rawTime ? ` · ${fmtTimeLabel(rawTime)}` : "";
     const typeTag = cls ? ` · ${formatClassTypeLabel(cls)}` : "";
     const tutorTag = cls?.tutor?.trim() ? ` · ${cls.tutor.trim()}` : "";
-    return `  • ${t.name}${dateTag}${timeTag}${typeTag}${tutorTag}`;
+    const displayName = t.firstName?.trim() || t.name;
+    return `  • ${displayName}${dateTag}${timeTag}${typeTag}${tutorTag}`;
   });
 
   // ── 4. HOL programme sessions tomorrow ───────────────────────────────────

@@ -1205,7 +1205,7 @@ export default function SessionAttendancePanel({
                               >
                                 Cancel
                               </button>
-                              {!row.isMakeupVisitor && row.status !== "makeup_scheduled" && (
+                              {row.status !== "makeup_scheduled" && (
                                 <button
                                   type="button"
                                   disabled={saving}

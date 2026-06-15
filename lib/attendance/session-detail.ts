@@ -145,7 +145,11 @@ export async function loadSessionDetail(sessionId: string) {
     }
   }
   const sessionDate = session.session.scheduledDate;
-  const rosterDeduped = [...rosterByStudentId.values()].filter(
+  // Custom makeup sessions only ever have the booked student(s) — skip the class roster
+  // so classmates don't bleed in. Their records are picked up via the existing-records path below.
+  const isCustomMakeupSession = session.session.rescheduleNote === "Makeup session";
+
+  const rosterDeduped = isCustomMakeupSession ? [] : [...rosterByStudentId.values()].filter(
     ({ student, enrollment }) =>
       isEnrollmentActiveOnDate({
         sessionDate,
@@ -358,7 +362,10 @@ export function toSessionDetailResponse(
       originalDate: detail.session.originalDate,
       status: detail.session.status,
       canDelete: !detail.students.some(
-        (row) => row.record != null && !isSystemAttendanceActor(row.record.updatedBy),
+        (row) =>
+          row.record != null &&
+          row.record.sessionId === detail.session.id &&
+          !isSystemAttendanceActor(row.record.updatedBy),
       ),
       reliefTutor: detail.session.reliefTutor,
       expected: detail.expected,
