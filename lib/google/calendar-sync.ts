@@ -327,7 +327,9 @@ export async function syncToGoogleCalendar(dryRun = false): Promise<SyncResult> 
 
   for (const row of sessionRows) {
     try {
-      const timeRaw = row.timeLabel || row.time;
+      // For rescheduled sessions (originalDate set), the timeLabel reflects the new time.
+      // For regular sessions, cls.time is authoritative — session.timeLabel can be stale.
+      const timeRaw = (row.originalDate ? row.timeLabel : null) || row.time || row.timeLabel;
       const parsed = parseTimeRange(timeRaw);
       if (!parsed) continue;
 

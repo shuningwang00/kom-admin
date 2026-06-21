@@ -21,6 +21,10 @@ export type DbReceiptPdfProps = {
   contactName: string;
   studentNames: string[];
   students: Array<{ name: string; lineItems: StoredLineItem[] }>;
+  subtotal: number;
+  discountAmount: number;
+  balanceForward: number;
+  creditApplied: number;
   totalPaid: number;
   paidAt: string;
 };
@@ -63,12 +67,26 @@ const styles = StyleSheet.create({
   // Totals
   totalsWrap: { flexDirection: "row", justifyContent: "flex-end", marginTop: 12 },
   totalsBox: { width: 210, paddingVertical: 12, paddingHorizontal: 14, backgroundColor: GREEN.tintBg, borderRadius: 4, borderLeftWidth: 3, borderLeftColor: GREEN.accent },
+  totalsLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
+  totalsLineLabel: { fontSize: 8.5, color: "#525252" },
+  totalsLineValue: { fontSize: 8.5, color: "#525252" },
+  totalsLineAccent: { color: GREEN.accent },
+  totalsFinalDivider: { borderTopWidth: 1, borderTopColor: "#bbf7d0", marginBottom: 8 },
   totalFinalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   totalLabel: { fontSize: 11, fontWeight: "bold", color: GREEN.accent },
   totalValue: { fontSize: 13, fontWeight: "bold", color: GREEN.accent },
 
   thankYou: { marginTop: 28, fontSize: 8.5, color: "#737373", textAlign: "center" },
 });
+
+function TotalsLine({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <View style={styles.totalsLine}>
+      <Text style={styles.totalsLineLabel}>{label}</Text>
+      <Text style={[styles.totalsLineValue, accent ? styles.totalsLineAccent : {}]}>{value}</Text>
+    </View>
+  );
+}
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
@@ -81,6 +99,10 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 
 export function DbReceiptDocument(props: DbReceiptPdfProps) {
   const multiStudent = props.students.length > 1;
+  const showDiscount = props.discountAmount > 0.005;
+  const showBalance = props.balanceForward > 0.005;
+  const showCredit = props.creditApplied > 0.005;
+  const showSubtotal = showDiscount || showBalance || showCredit;
 
   const tuitionStudents = props.students.map((s) => ({
     name: s.name,
@@ -162,6 +184,11 @@ export function DbReceiptDocument(props: DbReceiptPdfProps) {
         {/* Totals */}
         <View style={styles.totalsWrap}>
           <View style={styles.totalsBox}>
+            {showSubtotal && <TotalsLine label="Subtotal" value={formatMoney(props.subtotal)} />}
+            {showDiscount && <TotalsLine label="Discount" value={`−${formatMoney(props.discountAmount)}`} accent />}
+            {showBalance && <TotalsLine label="Balance forward" value={formatMoney(props.balanceForward)} />}
+            {showCredit && <TotalsLine label="Credit applied" value={`−${formatMoney(props.creditApplied)}`} accent />}
+            {showSubtotal && <View style={styles.totalsFinalDivider} />}
             <View style={styles.totalFinalRow}>
               <Text style={styles.totalLabel}>Amount paid</Text>
               <Text style={styles.totalValue}>{formatMoney(props.totalPaid)}</Text>

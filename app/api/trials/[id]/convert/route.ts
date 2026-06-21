@@ -3,6 +3,7 @@ import { jsonError, jsonOk } from "@/lib/api/json";
 import { getDb } from "@/lib/db/index";
 import { trialLeads } from "@/lib/db/schema";
 import { convertTrialLead } from "@/lib/trials/convert";
+import { invalidateEnrollmentCache } from "@/lib/attendance/list-sessions";
 import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export async function POST(
         body.classId != null ? String(body.classId) : undefined,
     });
 
+    invalidateEnrollmentCache();
     return jsonOk(result, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed";

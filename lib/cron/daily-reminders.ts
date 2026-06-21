@@ -172,10 +172,15 @@ export async function buildDailyReminder(): Promise<string> {
     }
 
     const lines = sessionRows
-      .filter(({ class: cls }) => (enrolledCount.get(cls.id) ?? 0) > 0)
+      .filter(({ session, class: cls }) =>
+        (enrolledCount.get(cls.id) ?? 0) > 0 ||
+        (trialCount.get(cls.id) ?? 0) > 0 ||
+        (makeupCount.get(session.id) ?? 0) > 0,
+      )
       .map(({ session, class: cls }) => {
         const type = formatClassTypeLabel(cls);
-        const timePart = (session.timeLabel || cls.time).trim();
+        const isRescheduled = Boolean(session.originalDate);
+        const timePart = ((isRescheduled ? session.timeLabel : null) || cls.time || session.timeLabel || "").trim();
         const labelParts = [type];
         if (timePart) labelParts.push(timePart);
         if (session.reliefTutor) {
@@ -225,7 +230,7 @@ export async function buildDailyReminder(): Promise<string> {
   const trialDates = [...new Set(namedTrials.map((t) => t.trialDate).filter(Boolean) as string[])];
   const trialSessionRows = trialClassIds.length && trialDates.length
     ? await db
-        .select({ classId: classSessions.classId, scheduledDate: classSessions.scheduledDate, timeLabel: classSessions.timeLabel })
+        .select({ classId: classSessions.classId, scheduledDate: classSessions.scheduledDate, timeLabel: classSessions.timeLabel, originalDate: classSessions.originalDate })
         .from(classSessions)
         .where(and(inArray(classSessions.classId, trialClassIds), inArray(classSessions.scheduledDate, trialDates)))
     : [];
@@ -235,7 +240,10 @@ export async function buildDailyReminder(): Promise<string> {
     const cls = t.classId ? trialClassMap.get(t.classId) : null;
     const session = t.classId && t.trialDate ? trialSessionMap.get(`${t.classId}:${t.trialDate}`) : null;
     const dateTag = t.trialDate ? ` · ${fmtDisplayDate(t.trialDate)}` : "";
-    const rawTime = session?.timeLabel?.trim() || cls?.time?.trim() || "";
+    // Only use session.timeLabel if the session is rescheduled (has originalDate);
+    // for regular sessions, cls.time is authoritative and session.timeLabel can be stale.
+    const isRescheduled = Boolean(session?.originalDate);
+    const rawTime = (isRescheduled ? session?.timeLabel?.trim() : null) || cls?.time?.trim() || session?.timeLabel?.trim() || "";
     const timeTag = rawTime ? ` · ${fmtTimeLabel(rawTime)}` : "";
     const typeTag = cls ? ` · ${formatClassTypeLabel(cls)}` : "";
     const tutorTag = cls?.tutor?.trim() ? ` · ${cls.tutor.trim()}` : "";

@@ -73,7 +73,7 @@ export async function attachExpectedAttendance<T extends SessionRowInput>(
       .where(
         and(
           inArray(trialLeads.classId, classIds),
-          inArray(trialLeads.status, ["active", "converted", "declined"]),
+          eq(trialLeads.status, "active"),
         ),
       ),
   ]);

@@ -1,6 +1,6 @@
 import { assertCanUseBilling } from "@/lib/auth/access";
-import { jsonError } from "@/lib/api/json";
-import { getInvoice, updateInvoiceReceipt } from "@/lib/billing/invoice-db";
+import { jsonError, jsonOk } from "@/lib/api/json";
+import { getInvoice, updateInvoiceReceipt, clearInvoiceReceipt } from "@/lib/billing/invoice-db";
 import { renderDbReceiptPdf } from "@/lib/pdf/render";
 import { deleteFileFromDrive, uploadBillingReceiptToDrive } from "@/lib/google/drive";
 import { pdfNextResponse } from "@/lib/pdf/response";
@@ -39,6 +39,10 @@ export async function POST(
       contactName: invoice.contactName,
       studentNames: invoice.studentNames,
       students: studentSections,
+      subtotal: parseFloat(invoice.subtotal),
+      discountAmount: parseFloat(invoice.discountAmount),
+      balanceForward: parseFloat(invoice.balanceForward),
+      creditApplied: parseFloat(invoice.creditApplied),
       totalPaid: parseFloat(invoice.totalPaid),
       paidAt,
     });
@@ -58,6 +62,22 @@ export async function POST(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to generate receipt";
+    return jsonError(msg, 500);
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    await assertCanUseBilling();
+    const { id } = await params;
+    const fileId = await clearInvoiceReceipt(id);
+    if (fileId) await deleteFileFromDrive(fileId).catch(() => null);
+    return jsonOk({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to clear receipt";
     return jsonError(msg, 500);
   }
 }

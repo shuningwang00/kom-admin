@@ -63,7 +63,7 @@ function addToExpected(
     expected.makeup += 1;
     return;
   }
-  if (student.freeTrial) expected.trial += 1;
+  if (student.freeTrial && !trialDay) expected.trial += 1;
   else expected.regular += 1;
 }
 

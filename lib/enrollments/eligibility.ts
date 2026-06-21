@@ -69,7 +69,7 @@ export function isFreeTrialOnSession(params: {
   const trialDay = params.trialAttendedAt?.trim()
     ? sessionIsoDate(params.trialAttendedAt)
     : null;
-  if (trialDay && session === trialDay) return true;
+  if (trialDay) return session === trialDay;
   return Boolean(params.freeTrial);
 }
 

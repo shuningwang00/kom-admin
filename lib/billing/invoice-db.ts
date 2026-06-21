@@ -274,8 +274,26 @@ export async function listBillingDashboard(
 
   const invoiceIdByStudent = new Map(isRows.map((r) => [r.studentId, r.invoiceId]));
 
+  // Fallback: pick up invoices created before invoice_students was introduced
+  if (allStudentIds.length > 0) {
+    const legacyRows = await db
+      .select({ id: invoices.id, studentId: invoices.studentId })
+      .from(invoices)
+      .where(
+        and(
+          inArray(invoices.studentId, allStudentIds),
+          eq(invoices.billingMonth, billingMonth),
+        ),
+      );
+    for (const r of legacyRows) {
+      if (r.studentId && !invoiceIdByStudent.has(r.studentId)) {
+        invoiceIdByStudent.set(r.studentId, r.id);
+      }
+    }
+  }
+
   let invoiceById = new Map<string, StoredInvoice>();
-  const invoiceIds = [...new Set(isRows.map((r) => r.invoiceId))];
+  const invoiceIds = [...new Set(invoiceIdByStudent.values())];
   if (invoiceIds.length > 0) {
     const invRows = await db.select().from(invoices).where(inArray(invoices.id, invoiceIds));
     invoiceById = new Map(invRows.map((inv) => [inv.id, inv]));
@@ -683,6 +701,14 @@ export async function updateInvoiceReceipt(
   data: { receiptFileId: string; receiptFileName: string },
 ): Promise<void> {
   await getDb().update(invoices).set({ ...data, updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
+}
+
+export async function clearInvoiceReceipt(invoiceId: string): Promise<string | null> {
+  const db = getDb();
+  const [inv] = await db.select({ receiptFileId: invoices.receiptFileId }).from(invoices).where(eq(invoices.id, invoiceId));
+  if (!inv) return null;
+  await db.update(invoices).set({ receiptFileId: null, receiptFileName: null, updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
+  return inv.receiptFileId ?? null;
 }
 
 export async function voidInvoice(invoiceId: string, voidedBy: string): Promise<void> {
