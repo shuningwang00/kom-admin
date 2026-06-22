@@ -17,6 +17,7 @@ import {
 import { listAllScheduledMakeupsEver } from "@/lib/attendance/makeup-booking";
 import { listNeedsMakeupScheduling, listReliefTutorNeededSessions } from "@/lib/attendance/makeup-hub";
 import { formatClassDropdownLabel, formatClassTypeLabel } from "@/lib/classes/display-label";
+import { normalizeTimeLabel } from "@/lib/scheduling/time-slots";
 import { sendTelegramMessage } from "@/lib/telegram/send";
 
 
@@ -51,6 +52,16 @@ function fmt12h(hhmm: string): string {
 function fmtTimeLabel(label: string): string {
   // Negative lookahead: skip times already followed by am/pm to avoid "4:30ampm"
   return label.replace(/(\d{1,2}:\d{2})(?!\s*[ap]m)/gi, (t) => fmt12h(t));
+}
+
+/**
+ * Pick the best time string for a session row.
+ * session.timeLabel is trusted only if it parses as a valid range (e.g. "1pm – 3pm").
+ * Single-token stale values like "09:00" fail normalizeTimeLabel and fall through to cls.time.
+ */
+function resolveSessionTime(sessionTimeLabel: string | null | undefined, classTime: string): string {
+  const tl = sessionTimeLabel?.trim() ?? "";
+  return (tl && normalizeTimeLabel(tl) ? tl : null) ?? classTime.trim();
 }
 
 export async function buildDailyReminder(): Promise<string> {
@@ -179,8 +190,7 @@ export async function buildDailyReminder(): Promise<string> {
       )
       .map(({ session, class: cls }) => {
         const type = formatClassTypeLabel(cls);
-        const isRescheduled = Boolean(session.originalDate);
-        const timePart = ((isRescheduled ? session.timeLabel : null) || cls.time || session.timeLabel || "").trim();
+        const timePart = resolveSessionTime(session.timeLabel, cls.time);
         const labelParts = [type];
         if (timePart) labelParts.push(timePart);
         if (session.reliefTutor) {
@@ -240,10 +250,7 @@ export async function buildDailyReminder(): Promise<string> {
     const cls = t.classId ? trialClassMap.get(t.classId) : null;
     const session = t.classId && t.trialDate ? trialSessionMap.get(`${t.classId}:${t.trialDate}`) : null;
     const dateTag = t.trialDate ? ` · ${fmtDisplayDate(t.trialDate)}` : "";
-    // Only use session.timeLabel if the session is rescheduled (has originalDate);
-    // for regular sessions, cls.time is authoritative and session.timeLabel can be stale.
-    const isRescheduled = Boolean(session?.originalDate);
-    const rawTime = (isRescheduled ? session?.timeLabel?.trim() : null) || cls?.time?.trim() || session?.timeLabel?.trim() || "";
+    const rawTime = resolveSessionTime(session?.timeLabel, cls?.time ?? "");
     const timeTag = rawTime ? ` · ${fmtTimeLabel(rawTime)}` : "";
     const typeTag = cls ? ` · ${formatClassTypeLabel(cls)}` : "";
     const tutorTag = cls?.tutor?.trim() ? ` · ${cls.tutor.trim()}` : "";
