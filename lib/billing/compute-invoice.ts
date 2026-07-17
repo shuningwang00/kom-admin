@@ -15,6 +15,7 @@ import {
 import { LESSON_RATES, parseSection } from "@/lib/billing/rates";
 import { REGISTRATION_FEE_AMOUNT } from "@/lib/billing/registration-fee";
 import { parseMakeupDateFromNote } from "@/lib/attendance/status";
+import { isEnrollmentPausedOnDate } from "@/lib/enrollments/pause";
 import { getDefaultRatePerSession } from "@/lib/config";
 
 export type ComputedLineItem = {
@@ -141,6 +142,8 @@ async function computeForStudent(
       registrationFeeDue: enrollments.registrationFeeDue,
       startedAt: enrollments.startedAt,
       endedAt: enrollments.endedAt,
+      pauseStartedAt: enrollments.pauseStartedAt,
+      pauseEndedAt: enrollments.pauseEndedAt,
     })
     .from(enrollments)
     .innerJoin(classes, eq(enrollments.classId, classes.id))
@@ -173,6 +176,7 @@ async function computeForStudent(
       scheduledDate: classSessions.scheduledDate,
       sessionStatus: classSessions.status,
       originalDate: classSessions.originalDate,
+      rescheduleNote: classSessions.rescheduleNote,
     })
     .from(classSessions)
     .where(
@@ -228,6 +232,12 @@ async function computeForStudent(
   for (const session of sessions) {
     if (session.sessionStatus === "cancelled" || session.sessionStatus === "rescheduled_away") continue;
 
+    // Ad-hoc makeup slots only bill the student making up, not all enrolled students
+    if (session.rescheduleNote === "Makeup session") {
+      const att = attendanceBySession.get(session.sessionId);
+      if (att?.status !== "makeup_scheduled" && att?.status !== "makeup_done") continue;
+    }
+
     // Skip rescheduled sessions that were already billed in a prior period
     if (session.originalDate && session.originalDate < effectiveStart) {
       const [alreadyBilled] = await db
@@ -250,6 +260,16 @@ async function computeForStudent(
     // Only bill sessions within the student's enrollment period
     if (enrollment.startedAt && session.scheduledDate < enrollment.startedAt) continue;
     if (enrollment.endedAt && session.scheduledDate > enrollment.endedAt) continue;
+
+    if (
+      isEnrollmentPausedOnDate({
+        sessionDate: session.scheduledDate,
+        pauseStartedAt: enrollment.pauseStartedAt,
+        pauseEndedAt: enrollment.pauseEndedAt,
+      })
+    ) {
+      continue;
+    }
 
     // Skip makeup slots already billed via makeup_done on the original session
     if (makeupDoneDates.has(`${session.classId}:${session.scheduledDate}`)) continue;

@@ -145,7 +145,18 @@ export async function findSessionForMakeupSlot(
       ) === key,
   );
 
-  if (!matches.length) return undefined;
+  if (!matches.length) {
+    // Key mismatch (e.g. time label normalization diff) — fall back to the
+    // regular generated session for this class on this date rather than
+    // creating a duplicate.
+    const regularFallback = rows.find(
+      (r) =>
+        r.class.id === targetClass.id &&
+        r.session.rescheduleNote !== "Makeup session",
+    );
+    if (regularFallback) return regularFallback.session;
+    return undefined;
+  }
   return pickCanonicalSessionRow(matches).session;
 }
 

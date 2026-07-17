@@ -36,3 +36,31 @@ export function validatePauseDates(
   }
   return null;
 }
+
+/** False when the enrollment is paused for every session day in the billing month. */
+export function isEnrollmentBillableInMonth(params: {
+  monthStart: string;
+  /** First day of the month after the billing month (exclusive end). */
+  monthEndExclusive: string;
+  pauseStartedAt?: string | null;
+  pauseEndedAt?: string | null;
+}): boolean {
+  const pauseStart = params.pauseStartedAt?.trim()
+    ? sessionIsoDate(params.pauseStartedAt)
+    : null;
+  if (!pauseStart) return true;
+
+  const { monthStart, monthEndExclusive } = params;
+  if (pauseStart >= monthEndExclusive) return true;
+
+  const pauseEnd = params.pauseEndedAt?.trim()
+    ? sessionIsoDate(params.pauseEndedAt)
+    : null;
+  if (pauseEnd && pauseEnd <= monthStart) return true;
+
+  if (pauseStart <= monthStart && (!pauseEnd || pauseEnd >= monthEndExclusive)) {
+    return false;
+  }
+
+  return true;
+}

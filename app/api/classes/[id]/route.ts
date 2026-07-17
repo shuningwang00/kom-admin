@@ -3,7 +3,7 @@ import { assertCanMutateClasses } from "@/lib/auth/access";
 import { getDb } from "@/lib/db/index";
 import { attendanceRecords, classes, classSessions, weekdayEnum } from "@/lib/db/schema";
 import { canonicalTimeLabel } from "@/lib/scheduling/time-slots";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -114,14 +114,13 @@ export async function PATCH(
       }
     }
 
-    // Propagate time change to future sessions still on the old class time
-    // (skip sessions that were manually rescheduled to a different time)
+    // Propagate time change to all future sessions that haven't been moved to a different date.
+    // Sessions moved from another date (originalDate IS NOT NULL) keep their own timeLabel.
     if (updates.time !== undefined) {
       const [existing] = await db.select({ time: classes.time }).from(classes).where(eq(classes.id, id));
       if (existing) {
-        const oldTimeLabel = canonicalTimeLabel(existing.time);
         const newTimeLabel = canonicalTimeLabel(updates.time);
-        if (oldTimeLabel !== newTimeLabel) {
+        if (canonicalTimeLabel(existing.time) !== newTimeLabel) {
           await db
             .update(classSessions)
             .set({ timeLabel: newTimeLabel, updatedAt: new Date() })
@@ -129,7 +128,8 @@ export async function PATCH(
               and(
                 eq(classSessions.classId, id),
                 eq(classSessions.status, "scheduled"),
-                eq(classSessions.timeLabel, oldTimeLabel),
+                isNull(classSessions.originalDate),
+                ne(classSessions.timeLabel, newTimeLabel),
                 gt(classSessions.scheduledDate, sgtToday()),
               ),
             );

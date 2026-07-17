@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import { computeInvoicePreview } from "@/lib/billing/compute-invoice";
 import type { InvoicePreview } from "@/lib/billing/compute-invoice";
+import { isEnrollmentBillableInMonth } from "@/lib/enrollments/pause";
 import { parseSection } from "@/lib/billing/rates";
 
 export type StoredInvoice = typeof invoices.$inferSelect;
@@ -249,6 +250,8 @@ export async function listBillingDashboard(
       classId: classes.id,
       classLabel: classes.level,
       registrationFeeDue: enrollments.registrationFeeDue,
+      pauseStartedAt: enrollments.pauseStartedAt,
+      pauseEndedAt: enrollments.pauseEndedAt,
     })
     .from(enrollments)
     .innerJoin(classes, eq(enrollments.classId, classes.id))
@@ -262,6 +265,16 @@ export async function listBillingDashboard(
 
   const classByStudent = new Map<string, Array<{ classId: string; classLabel: string; registrationFeeDue: boolean }>>();
   for (const row of enrollmentRows) {
+    if (
+      !isEnrollmentBillableInMonth({
+        monthStart,
+        monthEndExclusive: monthEnd,
+        pauseStartedAt: row.pauseStartedAt,
+        pauseEndedAt: row.pauseEndedAt,
+      })
+    ) {
+      continue;
+    }
     if (!classByStudent.has(row.studentId)) classByStudent.set(row.studentId, []);
     classByStudent.get(row.studentId)!.push({ classId: row.classId, classLabel: row.classLabel, registrationFeeDue: row.registrationFeeDue });
   }
@@ -321,7 +334,11 @@ export async function listBillingDashboard(
   for (const [key, groupStudents] of groups) {
     const isSolo = key.startsWith("solo:");
     const billingGroupId = isSolo ? null : key;
-    const studentsWithClasses = groupStudents.filter((s) => (classByStudent.get(s.studentId) ?? []).length > 0);
+    const studentsWithClasses = groupStudents.filter(
+      (s) =>
+        (classByStudent.get(s.studentId) ?? []).length > 0 ||
+        invoiceIdByStudent.has(s.studentId),
+    );
     if (studentsWithClasses.length === 0) continue;
 
     const studentIds = studentsWithClasses.map((s) => s.studentId);
